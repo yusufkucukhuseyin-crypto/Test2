@@ -1,0 +1,552 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { ImagePlus, Plus, Trash2, X } from 'lucide-react'
+import { db } from '../db/db'
+import { createOrder, updateOrder, type OrderInput } from '../db/actions'
+import type { ImageKind, OrderStatus, PriceExtra } from '../db/types'
+import { STATUS, STATUS_ORDER, calcTotal, productTypeOf } from '../lib/domain'
+import { money, parseDay, today, uid } from '../lib/format'
+import { useSettings } from '../lib/hooks'
+import { CapacityHint, CustomerPicker, IMAGE_KINDS } from '../components/shared'
+import {
+  Button,
+  Card,
+  ChipSelect,
+  ComboInput,
+  Field,
+  IconButton,
+  Input,
+  NumberInput,
+  PageHeader,
+  Segmented,
+  Select,
+  Textarea,
+  Toggle,
+  cx,
+  useToast,
+} from '../components/ui'
+
+type Form = Omit<OrderInput, 'customerId'> & { customerId: string }
+
+function emptyForm(date?: string): Form {
+  return {
+    customerId: '',
+    productType: 'pasta',
+    occasion: '',
+    amount: undefined,
+    tiers: 1,
+    cakeType: '',
+    creamType: '',
+    filling: '',
+    theme: '',
+    cakeText: '',
+    designNotes: '',
+    designApproved: false,
+    notes: '',
+    deliveryDate: date ?? '',
+    deliveryTime: '',
+    deliveryMethod: 'gelal',
+    deliveryAddress: '',
+    unitPrice: undefined,
+    extras: [],
+    calculatedTotal: 0,
+    agreedPrice: 0,
+    status: 'teklif',
+  }
+}
+
+interface PendingImage {
+  id: string
+  file: File
+  url: string
+  kind: ImageKind
+}
+
+export default function OrderForm() {
+  const { id } = useParams()
+  const [params] = useSearchParams()
+  const nav = useNavigate()
+  const toast = useToast()
+  const settings = useSettings()
+  const isEdit = Boolean(id)
+
+  const [form, setForm] = useState<Form>(() => emptyForm(params.get('tarih') ?? undefined))
+  const [loaded, setLoaded] = useState(!isEdit && !params.get('kaynak'))
+  const [agreedTouched, setAgreedTouched] = useState(isEdit)
+  const [deposit, setDeposit] = useState<{ amount?: number; method: string; date: string }>({
+    method: '',
+    date: today(),
+  })
+  const [pending, setPending] = useState<PendingImage[]>([])
+  const [copyImageId] = useState(params.get('gorsel') ?? undefined)
+  const [addSpecial, setAddSpecial] = useState(false)
+  const [specialPerson, setSpecialPerson] = useState('')
+  const [specialDate, setSpecialDate] = useState('')
+  const [saving, setSaving] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }))
+
+  // Düzenleme ya da kopyalama için yükle
+  useEffect(() => {
+    const src = id ?? params.get('kaynak')
+    if (!src) return
+    db.orders.get(src).then((o) => {
+      if (!o) return
+      const { id: _i, no: _n, createdAt: _c, updatedAt: _u, ...rest } = o
+      if (isEdit) setForm({ ...rest })
+      else
+        setForm({
+          ...emptyForm(params.get('tarih') ?? undefined),
+          // Katalogdan model seçildiyse müşteri kopyalanmaz
+          customerId: params.get('musteri') ?? (params.get('gorsel') ? '' : o.customerId),
+          productType: o.productType,
+          occasion: o.occasion,
+          amount: o.amount,
+          tiers: o.tiers,
+          cakeType: o.cakeType,
+          creamType: o.creamType,
+          filling: o.filling,
+          theme: o.theme,
+          designNotes: o.designNotes,
+          unitPrice: o.unitPrice,
+          extras: o.extras.map((e) => ({ ...e, id: uid() })),
+        })
+      setLoaded(true)
+    })
+  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Yeni siparişte müşteri parametresi
+  useEffect(() => {
+    const m = params.get('musteri')
+    if (!isEdit && m && !params.get('kaynak')) set('customerId', m)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Varsayılan birim fiyat ve ödeme yöntemi
+  useEffect(() => {
+    if (!settings || !loaded) return
+    if (form.unitPrice === undefined && !isEdit) set('unitPrice', productTypeOf(settings, form.productType).unitPrice)
+    if (!deposit.method) setDeposit((d) => ({ ...d, method: settings.options.paymentMethods[0] ?? 'Nakit' }))
+  }, [settings, loaded]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Müşteri adresini adrese teslimde öner
+  useEffect(() => {
+    if (form.deliveryMethod !== 'adres' || form.deliveryAddress || !form.customerId) return
+    db.customers.get(form.customerId).then((c) => c?.address && set('deliveryAddress', c.address))
+  }, [form.deliveryMethod, form.customerId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const calc = useMemo(() => calcTotal(form.unitPrice, form.amount, form.extras), [form.unitPrice, form.amount, form.extras])
+  useEffect(() => {
+    if (!agreedTouched) set('agreedPrice', calc)
+  }, [calc, agreedTouched])
+
+  useEffect(() => () => pending.forEach((p) => URL.revokeObjectURL(p.url)), []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!settings) return null
+  const pt = productTypeOf(settings, form.productType)
+  const occasionIsSpecial = Boolean(form.occasion && /doğum|yıl dönümü|yildonumu/i.test(form.occasion))
+  const valid = form.customerId && form.deliveryDate && form.productType
+
+  const changeType = (key: string) => {
+    const next = productTypeOf(settings, key)
+    setForm((f) => ({ ...f, productType: key, unitPrice: next.unitPrice, tiers: next.hasTiers ? f.tiers || 1 : undefined }))
+  }
+
+  const updateExtra = (eid: string, patch: Partial<PriceExtra>) =>
+    set(
+      'extras',
+      form.extras.map((e) => (e.id === eid ? { ...e, ...patch } : e)),
+    )
+
+  const onFiles = (files: FileList | null) => {
+    if (!files) return
+    // FileList input temizlenince boşalır; hemen kopyala
+    const added = Array.from(files).map((file) => ({ id: uid(), file, url: URL.createObjectURL(file), kind: 'referans' as ImageKind }))
+    setPending((p) => [...p, ...added])
+  }
+
+  const save = async () => {
+    if (!valid || saving) return
+    setSaving(true)
+    try {
+      const input: OrderInput = {
+        ...form,
+        calculatedTotal: calc,
+        agreedPrice: form.agreedPrice || 0,
+        extras: form.extras.filter((e) => e.label || e.amount),
+        tiers: pt.hasTiers ? form.tiers : undefined,
+        deliveryAddress: form.deliveryMethod === 'adres' ? form.deliveryAddress : '',
+      }
+      if (isEdit && id) {
+        await updateOrder(id, input)
+        toast('Sipariş güncellendi')
+        nav(`/siparisler/${id}`, { replace: true })
+      } else {
+        const newId = await createOrder(input, {
+          deposit: deposit.amount ? { amount: deposit.amount, method: deposit.method, date: deposit.date } : undefined,
+          images: pending.map((p) => ({ file: p.file, kind: p.kind })),
+          copyImageIds: copyImageId ? [copyImageId] : undefined,
+        })
+        if (addSpecial && occasionIsSpecial) {
+          const c = await db.customers.get(form.customerId)
+          const d = parseDay(specialDate || form.deliveryDate)
+          if (c) {
+            await db.customers.update(c.id, {
+              specialDays: [
+                ...(c.specialDays ?? []),
+                {
+                  id: uid(),
+                  type: form.occasion!.includes('oğum') ? 'Doğum günü' : form.occasion!,
+                  person: specialPerson || 'Kendisi',
+                  month: d.getMonth() + 1,
+                  day: d.getDate(),
+                },
+              ],
+              updatedAt: Date.now(),
+            })
+          }
+        }
+        toast(`Sipariş kaydedildi`)
+        nav(`/siparisler/${newId}`, { replace: true })
+      }
+    } catch (e) {
+      alert((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const balance = (form.agreedPrice || 0) - (deposit.amount || 0)
+
+  return (
+    <div className="pb-20 md:pb-0">
+      <PageHeader
+        back
+        title={isEdit ? 'Siparişi düzenle' : 'Yeni sipariş'}
+        subtitle={params.get('kaynak') && !isEdit ? 'Önceki siparişten kopyalandı — tarihi ve detayları kontrol edin' : undefined}
+        actions={
+          <div className="hidden gap-2 md:flex">
+            <Button onClick={() => nav(-1)}>Vazgeç</Button>
+            <Button variant="primary" disabled={!valid || saving} onClick={save}>
+              {saving ? 'Kaydediliyor…' : 'Kaydet'}
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+        <div className="space-y-4">
+          <Section title="Müşteri">
+            <CustomerPicker value={form.customerId} onChange={(v) => set('customerId', v)} />
+          </Section>
+
+          <Section title="Ürün">
+            <div className="mb-3 flex flex-wrap gap-2">
+              {settings.productTypes.map((p) => (
+                <button
+                  type="button"
+                  key={p.key}
+                  onClick={() => changeType(p.key)}
+                  className={cx(
+                    'flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[15px] transition',
+                    form.productType === p.key ? 'border-accent bg-accent-soft font-medium text-accent-ink' : 'border-line bg-white',
+                  )}
+                >
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={pt.unit === 'kişi' ? 'Kişi sayısı' : 'Adet'}>
+                <NumberInput value={form.amount} onChange={(v) => set('amount', v)} min={0} />
+              </Field>
+              {pt.hasTiers && (
+                <Field label="Kat sayısı">
+                  <NumberInput value={form.tiers} onChange={(v) => set('tiers', v)} min={1} max={8} />
+                </Field>
+              )}
+            </div>
+            <Field label="Kutlama türü" className="mt-3" group>
+              <ChipSelect options={settings.options.occasions} value={form.occasion} onChange={(v) => set('occasion', v)} />
+            </Field>
+          </Section>
+
+          <Section title="İçerik">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Kek cinsi">
+                <ComboInput options={settings.options.cakeTypes} value={form.cakeType} onChange={(v) => set('cakeType', v)} />
+              </Field>
+              <Field label="Krema cinsi">
+                <ComboInput options={settings.options.creamTypes} value={form.creamType} onChange={(v) => set('creamType', v)} />
+              </Field>
+              <Field label="İç dolgu / içerikler">
+                <ComboInput options={settings.options.fillings} value={form.filling} onChange={(v) => set('filling', v)} />
+              </Field>
+              <Field label="Tema">
+                <ComboInput options={settings.options.themes} value={form.theme} onChange={(v) => set('theme', v)} />
+              </Field>
+              <Field label="Pasta üstü yazı" className="md:col-span-2">
+                <Input value={form.cakeText ?? ''} onChange={(e) => set('cakeText', e.target.value)} placeholder="Örn. İyi ki doğdun Elif" />
+              </Field>
+            </div>
+          </Section>
+
+          <Section title="Model / tasarım">
+            <Field label="Tasarımla ilgili beklentiler">
+              <Textarea
+                value={form.designNotes ?? ''}
+                onChange={(e) => set('designNotes', e.target.value)}
+                placeholder="Renkler, figürler, referans açıklaması…"
+              />
+            </Field>
+            <div className="mt-3">
+              <Toggle checked={!!form.designApproved} onChange={(v) => set('designApproved', v)} label="Tasarım müşteriyle onaylandı" />
+            </div>
+            {!isEdit && (
+              <div className="mt-4">
+                <div className="mb-2 text-[13px] font-medium text-muted">Görseller</div>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {pending.map((p) => (
+                    <div key={p.id} className="relative">
+                      <img src={p.url} alt="" className="aspect-square w-full rounded-xl border border-line object-cover" />
+                      <button
+                        type="button"
+                        aria-label="Kaldır"
+                        onClick={() => setPending((x) => x.filter((y) => y.id !== p.id))}
+                        className="absolute top-1 right-1 flex h-7 w-7 items-center justify-center rounded-full bg-white/90 shadow"
+                      >
+                        <X size={14} />
+                      </button>
+                      <select
+                        value={p.kind}
+                        onChange={(e) =>
+                          setPending((x) => x.map((y) => (y.id === p.id ? { ...y, kind: e.target.value as ImageKind } : y)))
+                        }
+                        className="mt-1 w-full rounded-lg border border-line bg-white px-1 py-1 text-xs"
+                      >
+                        {IMAGE_KINDS.map((k) => (
+                          <option key={k.value} value={k.value}>
+                            {k.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-line text-sm text-muted hover:border-accent hover:text-accent-ink"
+                  >
+                    <ImagePlus size={22} />
+                    Görsel ekle
+                  </button>
+                </div>
+                {copyImageId && <div className="mt-2 text-xs text-muted">Katalogdan seçilen model referans olarak eklenecek.</div>}
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    onFiles(e.target.files)
+                    e.target.value = ''
+                  }}
+                />
+              </div>
+            )}
+          </Section>
+
+          <Section title="Teslimat">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Teslim tarihi" required>
+                <Input type="date" value={form.deliveryDate} onChange={(e) => set('deliveryDate', e.target.value)} />
+              </Field>
+              <Field label="Saat">
+                <Input type="time" value={form.deliveryTime ?? ''} onChange={(e) => set('deliveryTime', e.target.value)} />
+              </Field>
+            </div>
+            {form.deliveryDate && (
+              <CapacityHint
+                date={form.deliveryDate}
+                excludeId={id}
+                extraWeight={form.status === 'teklif' || form.status === 'iptal' ? 0 : pt.capacityWeight}
+              />
+            )}
+            <div className="mt-3">
+              <Segmented
+                value={form.deliveryMethod}
+                onChange={(v) => set('deliveryMethod', v)}
+                options={[
+                  { value: 'gelal', label: 'Gel-al' },
+                  { value: 'adres', label: 'Adrese teslim' },
+                ]}
+              />
+            </div>
+            {form.deliveryMethod === 'adres' && (
+              <Field label="Teslimat adresi" className="mt-3">
+                <Textarea className="min-h-[64px]" value={form.deliveryAddress ?? ''} onChange={(e) => set('deliveryAddress', e.target.value)} />
+              </Field>
+            )}
+          </Section>
+        </div>
+
+        <div className="space-y-4">
+          <Section title="Fiyat">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={pt.unit === 'kişi' ? 'Kişi başı fiyat' : 'Adet fiyatı'}>
+                <NumberInput value={form.unitPrice} onChange={(v) => set('unitPrice', v)} min={0} />
+              </Field>
+              <Field label={pt.unit === 'kişi' ? 'Kişi sayısı' : 'Adet'}>
+                <NumberInput value={form.amount} onChange={(v) => set('amount', v)} min={0} />
+              </Field>
+            </div>
+            <div className="mt-3">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[13px] font-medium text-muted">Ekstralar (aksesuar, oyuncak, özel malzeme…)</span>
+              </div>
+              <div className="space-y-2">
+                {form.extras.map((e) => (
+                  <div key={e.id} className="flex gap-2">
+                    <div className="flex-1">
+                      <ComboInput
+                        options={settings.options.extras}
+                        value={e.label}
+                        onChange={(v) => updateExtra(e.id, { label: v })}
+                        placeholder="Açıklama"
+                      />
+                    </div>
+                    <NumberInput
+                      className="w-28"
+                      value={e.amount || undefined}
+                      onChange={(v) => updateExtra(e.id, { amount: v ?? 0 })}
+                      placeholder="₺"
+                    />
+                    <IconButton label="Sil" onClick={() => set('extras', form.extras.filter((x) => x.id !== e.id))}>
+                      <Trash2 size={18} className="text-red-600" />
+                    </IconButton>
+                  </div>
+                ))}
+                <Button
+                  size="sm"
+                  variant="soft"
+                  icon={<Plus size={16} />}
+                  onClick={() => set('extras', [...form.extras, { id: uid(), label: '', amount: 0 }])}
+                >
+                  Ekstra ekle
+                </Button>
+              </div>
+            </div>
+            <div className="mt-4 space-y-1.5 rounded-xl bg-stone-50 p-3 text-sm">
+              <Row label={`Baz (${form.amount || 0} ${pt.unit} × ${money(form.unitPrice)})`} value={money((form.unitPrice || 0) * (form.amount || 0))} />
+              {form.extras.length > 0 && <Row label="Ekstralar" value={money(form.extras.reduce((s, e) => s + (e.amount || 0), 0))} />}
+              <Row label={<b>Hesaplanan toplam</b>} value={<b>{money(calc)}</b>} />
+            </div>
+            <Field label="Anlaşılan tutar" className="mt-3" hint={form.agreedPrice !== calc ? `Hesaplanandan fark: ${money((form.agreedPrice || 0) - calc)}` : undefined}>
+              <div className="flex gap-2">
+                <NumberInput
+                  value={form.agreedPrice}
+                  onChange={(v) => {
+                    setAgreedTouched(true)
+                    set('agreedPrice', v ?? 0)
+                  }}
+                />
+                {agreedTouched && form.agreedPrice !== calc && (
+                  <Button
+                    onClick={() => {
+                      setAgreedTouched(false)
+                      set('agreedPrice', calc)
+                    }}
+                  >
+                    = Hesaplanan
+                  </Button>
+                )}
+              </div>
+            </Field>
+
+            {!isEdit && (
+              <div className="mt-4 border-t border-line pt-4">
+                <div className="mb-2 text-[13px] font-medium text-muted">Alınan kapora</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <NumberInput value={deposit.amount} onChange={(v) => setDeposit((d) => ({ ...d, amount: v }))} placeholder="Tutar ₺" />
+                  <Select value={deposit.method} onChange={(e) => setDeposit((d) => ({ ...d, method: e.target.value }))}>
+                    {settings.options.paymentMethods.map((m) => (
+                      <option key={m}>{m}</option>
+                    ))}
+                  </Select>
+                </div>
+                {!!deposit.amount && (
+                  <div className="mt-2 text-sm">
+                    Kalan: <b className="tabular-nums">{money(balance)}</b>
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+
+          <Section title="Durum ve notlar">
+            <Field label="Sipariş durumu">
+              <Select value={form.status} onChange={(e) => set('status', e.target.value as OrderStatus)}>
+                {[...STATUS_ORDER, 'iptal' as const].map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS[s].label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {!isEdit && !!deposit.amount && form.status === 'teklif' && (
+              <div className="mt-1 text-xs text-muted">Kapora girildiği için kayıtta durum “Kapora alındı” olacak.</div>
+            )}
+            <Field label="Notlar" className="mt-3">
+              <Textarea value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
+            </Field>
+            {!isEdit && occasionIsSpecial && (
+              <div className="mt-4 rounded-xl bg-accent-soft/50 p-3">
+                <Toggle checked={addSpecial} onChange={setAddSpecial} label="Bu kutlamayı müşterinin özel günlerine ekle (her yıl hatırlat)" />
+                {addSpecial && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Input value={specialPerson} onChange={(e) => setSpecialPerson(e.target.value)} placeholder="Kimin? (Kızı Elif)" />
+                    <Input
+                      type="date"
+                      value={specialDate || form.deliveryDate}
+                      onChange={(e) => setSpecialDate(e.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        </div>
+      </div>
+
+      {/* Telefon için sabit kaydet çubuğu */}
+      <div className="pb-safe fixed inset-x-0 bottom-0 z-40 flex gap-2 border-t border-line bg-white px-4 py-3 md:hidden">
+        <Button className="flex-1" onClick={() => nav(-1)}>
+          Vazgeç
+        </Button>
+        <Button className="flex-[2]" variant="primary" disabled={!valid || saving} onClick={save}>
+          {saving ? 'Kaydediliyor…' : 'Kaydet'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Card className="p-4">
+      <h2 className="mb-3 font-display text-lg text-ink">{title}</h2>
+      {children}
+    </Card>
+  )
+}
+
+function Row({ label, value }: { label: React.ReactNode; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-muted">{label}</span>
+      <span className="tabular-nums">{value}</span>
+    </div>
+  )
+}

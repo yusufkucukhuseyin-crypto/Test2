@@ -1,0 +1,92 @@
+@import 'tailwindcss';
+@import '@fontsource/playfair-display/600.css';
+
+:root {
+  --accent: #c06c7b;
+  --accent-soft: #f7e4e7;
+  --accent-ink: #8e3f4e;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+}
+
+@theme {
+  --color-cream: #faf6f2;
+  --color-ink: #3a2a25;
+  --color-muted: #8a766f;
+  --color-line: #ece1da;
+  --font-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+html,
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+/* iOS'ta odaklanınca yakınlaştırmayı engellemek için 16px */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.animate-sheet {
+  animation: sheet-in 0.18s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    transform: translate(-50%, 12px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+.animate-toast {
+  animation: toast-in 0.2s ease-out;
+}

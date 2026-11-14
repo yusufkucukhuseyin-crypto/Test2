@@ -51,6 +51,7 @@ import {
   cx,
   useToast,
 } from '../components/ui'
+import { ask } from '../components/confirm'
 
 type Tab = 'detay' | 'tasarim' | 'odeme' | 'uretim' | 'maliyet'
 
@@ -91,14 +92,14 @@ export default function OrderDetail() {
   const cost = moves.reduce((s, m) => s + m.quantity * m.unitCost, 0)
 
   const remove = async () => {
-    if (!confirm(`#${order.no} numaralı sipariş ve tüm görselleri, ödemeleri silinsin mi?`)) return
+    if (!(await ask(`#${order.no} numaralı sipariş; görselleri, ödemeleri ve üretim adımlarıyla birlikte silinecek.`, { confirmLabel: 'Siparişi sil' }))) return
     await deleteOrder(order.id)
     toast('Sipariş silindi')
     nav('/siparisler', { replace: true })
   }
 
   const changeStatus = async (s: Order['status']) => {
-    if (s === 'teslim' && balance > 0 && !confirm(`Kalan ${money(balance)} ödeme var. Yine de teslim edildi olarak işaretlensin mi?`)) return
+    if (s === 'teslim' && balance > 0 && !(await ask(`Kalan ${money(balance)} ödeme var. Yine de teslim edildi olarak işaretlensin mi?`, { confirmLabel: 'Teslim edildi', danger: false }))) return
     await setOrderStatus(order.id, s)
     toast(`Durum: ${STATUS[s].label}`)
   }
@@ -453,7 +454,7 @@ function PaymentsTab({
               <IconButton
                 label="Sil"
                 onClick={async () => {
-                  if (confirm('Ödeme kaydı silinsin mi?')) await deletePayment(p.id)
+                  if (await ask('Ödeme kaydı silinsin mi?', { confirmLabel: 'Sil' })) await deletePayment(p.id)
                 }}
               >
                 <Trash2 size={16} className="text-stone-400" />
@@ -532,7 +533,7 @@ function TasksTab({ order, tasks }: { order: Order; tasks: import('../db/types')
               size="sm"
               icon={<RotateCcw size={15} />}
               onClick={async () => {
-                if (tasks.length && !confirm('Mevcut adımlar silinip ürün şablonundan yeniden oluşturulsun mu?')) return
+                if (tasks.length && !(await ask('Mevcut adımlar silinip ürün şablonundan yeniden oluşturulsun mu?', { confirmLabel: 'Yeniden oluştur' }))) return
                 await regenerateTasks(order.id)
                 toast('Plan şablondan oluşturuldu')
               }}
@@ -646,7 +647,7 @@ function CostTab({ order, moves, cost }: { order: Order; moves: import('../db/ty
                   <IconButton
                     label="Geri al"
                     onClick={async () => {
-                      if (!confirm('Kullanım geri alınsın mı? Miktar stoğa geri eklenir.')) return
+                      if (!(await ask('Kullanım geri alınsın mı? Miktar stoğa geri eklenir.', { confirmLabel: 'Geri al' }))) return
                       await deleteStockMove(m.id)
                     }}
                   >

@@ -11,6 +11,7 @@ import { useSettings } from '../lib/hooks'
 import { CustomerFormModal, StatusBadge, Thumb } from '../components/shared'
 import { ImageViewer } from '../components/ImageViewer'
 import { Avatar, Button, Card, CardHeader, EmptyState, IconButton, LinkButton, PageHeader, Stat, useToast } from '../components/ui'
+import { ask, tell } from '../components/confirm'
 
 export default function CustomerDetail() {
   const { id = '' } = useParams()
@@ -48,13 +49,13 @@ export default function CustomerDetail() {
   const specials = upcomingSpecialDays([c], 366)
 
   const remove = async () => {
-    if (!confirm(`${c.name} silinsin mi?`)) return
+    if (!(await ask(`${c.name} silinsin mi?`, { confirmLabel: 'Sil' }))) return
     try {
       await deleteCustomer(c.id)
       toast('Müşteri silindi')
       nav('/musteriler', { replace: true })
     } catch (e) {
-      alert((e as Error).message)
+      await tell((e as Error).message)
     }
   }
 

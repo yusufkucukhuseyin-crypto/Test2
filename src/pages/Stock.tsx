@@ -26,6 +26,7 @@ import {
   cx,
   useToast,
 } from '../components/ui'
+import { ask } from '../components/confirm'
 
 type MoveKind = StockMove['type']
 const MOVE_LABEL: Record<MoveKind, string> = { giris: 'Alış / giriş', cikis: 'Kullanım / çıkış', sayim: 'Sayım' }
@@ -215,7 +216,7 @@ function ItemModal({
               variant="danger"
               icon={<Trash2 size={16} />}
               onClick={async () => {
-                if (!confirm(`${item.name} ve tüm hareketleri silinsin mi?`)) return
+                if (!(await ask(`${item.name} ve tüm hareketleri silinsin mi?`, { confirmLabel: 'Sil' }))) return
                 await deleteStockItem(item.id)
                 onClose()
               }}
@@ -371,7 +372,7 @@ function HistoryModal({ item, onClose, onCount }: { item: StockItem | null; onCl
                 <IconButton
                   label="Geri al"
                   onClick={async () => {
-                    if (confirm('Bu hareket geri alınsın mı? Miktar ve maliyet düzeltilir.')) await deleteStockMove(m.id)
+                    if (await ask('Bu hareket geri alınsın mı? Miktar ve maliyet düzeltilir.', { confirmLabel: 'Geri al' })) await deleteStockMove(m.id)
                   }}
                 >
                   <Trash2 size={16} className="text-stone-400" />

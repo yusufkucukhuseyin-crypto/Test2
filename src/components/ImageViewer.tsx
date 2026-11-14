@@ -9,6 +9,7 @@ import { fmtDate } from '../lib/format'
 import { useSettings } from '../lib/hooks'
 import { FullImage, IMAGE_KINDS } from './shared'
 import { Button, Field, Input, LinkButton, Modal, Select, Toggle, useToast } from './ui'
+import { ask } from './confirm'
 
 export function ImageViewer({
   image,
@@ -50,7 +51,7 @@ export function ImageViewer({
             variant="danger"
             icon={<Trash2 size={16} />}
             onClick={async () => {
-              if (!confirm('Görsel silinsin mi?')) return
+              if (!(await ask('Görsel silinsin mi?', { confirmLabel: 'Sil' }))) return
               await db.images.delete(image.id)
               toast('Görsel silindi')
               onClose()

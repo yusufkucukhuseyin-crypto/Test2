@@ -1,4 +1,5 @@
-import { HashRouter, Route, Routes } from 'react-router-dom'
+import { HashRouter, MemoryRouter, Route, Routes } from 'react-router-dom'
+import { ConfirmHost } from './components/confirm'
 import Layout from './components/Layout'
 import { ToastProvider } from './components/ui'
 import Dashboard from './pages/Dashboard'
@@ -14,10 +15,14 @@ import Stock from './pages/Stock'
 import Reports from './pages/Reports'
 import SettingsPage from './pages/Settings'
 
+// Gömülü önizleme sürümünde adres çubuğu kullanılmaz
+const Router = import.meta.env.VITE_EMBED ? MemoryRouter : HashRouter
+
 export default function App() {
   return (
     <ToastProvider>
-      <HashRouter>
+      <ConfirmHost />
+      <Router>
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
@@ -36,7 +41,7 @@ export default function App() {
             <Route path="*" element={<Dashboard />} />
           </Route>
         </Routes>
-      </HashRouter>
+      </Router>
     </ToastProvider>
   )
 }

@@ -25,6 +25,7 @@ import {
   cx,
   useToast,
 } from '../components/ui'
+import { tell } from '../components/confirm'
 
 type Form = Omit<OrderInput, 'customerId'> & { customerId: string }
 
@@ -210,7 +211,7 @@ export default function OrderForm() {
         nav(`/siparisler/${newId}`, { replace: true })
       }
     } catch (e) {
-      alert((e as Error).message)
+      await tell((e as Error).message)
     } finally {
       setSaving(false)
     }

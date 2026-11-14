@@ -10,6 +10,7 @@ import type { OptionLists, ProductType, Settings } from '../db/types'
 import { useSettings } from '../lib/hooks'
 import { WEEKDAYS, today, uid } from '../lib/format'
 import { Button, Card, CardHeader, Field, IconButton, Input, NumberInput, PageHeader, Select, Toggle, cx, useToast } from '../components/ui'
+import { ask, tell } from '../components/confirm'
 
 type Draft = Pick<Settings, 'businessName' | 'weekdayCapacity' | 'productTypes' | 'options' | 'reminderDays'>
 
@@ -332,7 +333,7 @@ function DeleteType({ productKey, onDelete }: { productKey: string; onDelete: ()
       icon={<Trash2 size={15} />}
       disabled={!!used}
       title={used ? `${used} siparişte kullanılıyor` : undefined}
-      onClick={() => confirm('Bu ürün türü silinsin mi?') && onDelete()}
+      onClick={async () => (await ask('Bu ürün türü silinsin mi?', { confirmLabel: 'Sil' })) && onDelete()}
     >
       {used ? `Siparişlerde kullanılıyor (${used})` : 'Ürün türünü sil'}
     </Button>
@@ -454,14 +455,14 @@ function DataCard() {
             const f = e.target.files?.[0]
             e.target.value = ''
             if (!f) return
-            if (!confirm('Yedek geri yüklenirse bu cihazdaki TÜM mevcut verilerin yerini alır. Devam edilsin mi?')) return
+            if (!(await ask('Yedek geri yüklenirse bu cihazdaki TÜM mevcut verilerin yerini alır. Devam edilsin mi?', { confirmLabel: 'Geri yükle' }))) return
             setBusy(true)
             try {
               await importBackup(f)
               toast('Yedek geri yüklendi')
               setTimeout(() => location.reload(), 600)
             } catch (err) {
-              alert((err as Error).message)
+              await tell((err as Error).message)
             } finally {
               setBusy(false)
             }
@@ -491,8 +492,8 @@ function DataCard() {
             variant="danger"
             disabled={busy}
             onClick={async () => {
-              if (!confirm('Tüm müşteriler, siparişler, görseller ve stok kayıtları silinecek. Emin misiniz?')) return
-              if (!confirm('Bu işlem geri alınamaz. Önce yedek aldınız mı? Silmek için Tamam’a basın.')) return
+              if (!(await ask('Tüm müşteriler, siparişler, görseller ve stok kayıtları silinecek.', { confirmLabel: 'Devam' }))) return
+              if (!(await ask('Bu işlem geri alınamaz. Önce yedek aldınız mı?', { confirmLabel: 'Tüm verileri sil' }))) return
               await wipeAll()
               toast('Tüm veriler silindi')
               setTimeout(() => location.reload(), 600)

@@ -8,6 +8,7 @@ import { loadDemoData } from '../db/seed'
 import { useCoreData, sortByDelivery } from '../lib/data'
 import { useSettings } from '../lib/hooks'
 import { isOpen, productTypeOf, specialDayText, taskCovers, taskEnd, upcomingSpecialDays } from '../lib/domain'
+import { buildLoad, dayUsage, fmtHours, fmtMin, taskIssue, usageTone } from '../lib/schedule'
 import { fmtDate, isoDate, money, num, shiftDay, today } from '../lib/format'
 import { OrderRow } from '../components/shared'
 import { Button, Card, CardHeader, EmptyState, LinkButton, PageHeader, Stat, cx, useToast } from '../components/ui'
@@ -44,6 +45,14 @@ export default function Dashboard() {
     .filter((x) => taskCovers(x, t) && orderById.get(x.orderId)?.status !== 'iptal')
     .sort((a, b) => Number(a.done) - Number(b.done) || (orderById.get(a.orderId)?.deliveryDate ?? '').localeCompare(orderById.get(b.orderId)?.deliveryDate ?? ''))
   const lateTasks = (tasks ?? []).filter((x) => !x.done && taskEnd(x) < t && isOpen(orderById.get(x.orderId)?.status ?? 'iptal'))
+  // Önümüzdeki 14 günde kapasite aşımı ve teslime yetişmeyen siparişler
+  const liveTasks = (tasks ?? []).filter((x) => orderById.get(x.orderId)?.status !== 'iptal')
+  const load = buildLoad(liveTasks)
+  const overDays = Array.from({ length: 14 }, (_, i) => shiftDay(t, i)).filter((d) => usageTone(dayUsage(settings, load, d)) === 'asim')
+  const lateOrders = data.orders.filter(
+    (o) => isOpen(o.status) && liveTasks.some((x) => x.orderId === o.id && taskIssue(x, o.deliveryDate, t) === 'gec'),
+  )
+  const todayUsage = dayUsage(settings, load, t)
   const lowStock = (stock ?? []).filter((s) => s.minQuantity !== undefined && s.minQuantity > 0 && s.quantity <= s.minQuantity)
 
   const empty = data.orders.length === 0 && data.customers.length === 0
@@ -166,6 +175,28 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-4">
+          {(overDays.length > 0 || lateOrders.length > 0) && (
+            <Card className="border-amber-200 bg-amber-50/60 p-4">
+              <div className="flex items-start gap-2 text-sm text-amber-900">
+                <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="font-semibold">Kapasite uyarısı</div>
+                  {overDays.length > 0 && (
+                    <div>Kapasitesi aşılan günler: {overDays.map((d) => fmtDate(d, 'd MMM')).join(', ')}</div>
+                  )}
+                  {lateOrders.length > 0 && (
+                    <div>
+                      Teslime yetişmeyen: {lateOrders.map((o) => `${data.customerById.get(o.customerId)?.name} (${fmtDate(o.deliveryDate, 'd MMM')})`).join(', ')}
+                    </div>
+                  )}
+                  <Link to="/planlama" className="inline-block font-medium text-amber-900 underline">
+                    Üretim planını aç
+                  </Link>
+                </div>
+              </div>
+            </Card>
+          )}
+
           <Card>
             <CardHeader
               title="Bugünün işleri"
@@ -203,11 +234,17 @@ export default function Dashboard() {
                           {o ? data.customerById.get(o.customerId)?.name : ''} · teslim {o ? fmtDate(o.deliveryDate, 'd MMM') : ''}
                         </span>
                       </span>
+                      <span className="shrink-0 text-xs tabular-nums text-muted">{fmtMin(x.alloc?.[t] ?? x.minutes)}</span>
                     </button>
                   )
                 })
               ) : (
-                <div className="px-2 text-sm text-muted">Bugün için planlanmış iş yok.</div>
+                <div className="px-2 text-sm text-muted">{todayUsage.closed ? 'Bugün kapalı gün.' : 'Bugün için planlanmış iş yok.'}</div>
+              )}
+              {!todayUsage.closed && todayTasks.length > 0 && (
+                <div className="mx-2 mt-2 text-xs text-muted">
+                  Bugün {fmtMin(todayUsage.used)} iş planlı · kapasite {fmtHours(todayUsage.cap)} sa
+                </div>
               )}
               {lateTasks.length > 0 && (
                 <Link to="/planlama" className="mx-2 mt-2 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">

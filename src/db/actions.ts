@@ -1,5 +1,5 @@
 import { db } from './db'
-import { defaultSettings } from './defaults'
+import { DEFAULT_PRODUCT_TYPES, defaultSettings } from './defaults'
 import type {
   Customer,
   ImageKind,
@@ -11,8 +11,9 @@ import type {
   StockMove,
   Task,
 } from './types'
-import { diffDays, shiftDay, today, uid } from '../lib/format'
-import { generateTasks, productTypeOf } from '../lib/domain'
+import { today, uid } from '../lib/format'
+import { productTypeOf } from '../lib/domain'
+import { buildLoad, fillForward, planSteps, templateTasks, withAlloc, type Alloc } from '../lib/schedule'
 import { processImage } from '../lib/image'
 
 /* ---------------- Ayarlar ---------------- */
@@ -28,7 +29,34 @@ export async function ensureSettings(): Promise<Settings> {
   const merged: Settings = {
     ...defaults,
     ...existing,
+    dayNotes: existing.dayNotes ?? {},
     options: { ...defaults.options, ...existing.options },
+  }
+  // Eski sürüm: kapasite "günlük pasta adedi" idi -> çalışma saatine geç
+  if (!existing.capacityUnit) {
+    merged.capacityUnit = 'saat'
+    merged.weekdayCapacity = defaults.weekdayCapacity
+    merged.capacityOverrides = Object.fromEntries(
+      Object.entries(existing.capacityOverrides ?? {}).filter(([, v]) => v === 0),
+    )
+    merged.productTypes = existing.productTypes.map((p) => {
+      const def = DEFAULT_PRODUCT_TYPES.find((d) => d.key === p.key)
+      return {
+        ...p,
+        tasks: p.tasks.map((t) => {
+          if ('fixedMin' in t) return t
+          const old = t as { name: string; offset: number; days?: number }
+          return (
+            def?.tasks.find((d) => d.name === old.name) ?? {
+              name: old.name,
+              offset: old.offset,
+              fixedMin: 60 * (old.days || 1),
+              perUnitMin: 0,
+            }
+          )
+        }),
+      }
+    })
   }
   if (JSON.stringify(merged) !== JSON.stringify(existing)) await db.settings.put(merged)
   return merged
@@ -73,7 +101,7 @@ export async function createOrder(input: OrderInput, extras: NewOrderExtras = {}
   const processed = await Promise.all((extras.images ?? []).map(async (i) => ({ ...(await processImage(i.file)), kind: i.kind })))
   const copies = extras.copyImageIds?.length ? await db.images.bulkGet(extras.copyImageIds) : []
 
-  return db.transaction('rw', [db.orders, db.settings, db.payments, db.tasks, db.images], async () => {
+  const newId = await db.transaction('rw', [db.orders, db.settings, db.payments, db.images], async () => {
     const settings = (await db.settings.get('main'))!
     const id = uid()
     const now = Date.now()
@@ -97,8 +125,6 @@ export async function createOrder(input: OrderInput, extras: NewOrderExtras = {}
       })
     }
 
-    const pt = productTypeOf(settings, order.productType)
-    if (order.status !== 'iptal') await db.tasks.bulkAdd(generateTasks(order, pt))
 
     const imgs: OrderImage[] = processed.map((p, i) => ({
       id: uid(),
@@ -127,25 +153,26 @@ export async function createOrder(input: OrderInput, extras: NewOrderExtras = {}
     if (imgs.length) await db.images.bulkAdd(imgs)
     return id
   })
+  // İş adımlarını ürün şablonundan oluşturup kapasiteye göre yerleştir
+  await regenerateTasks(newId)
+  return newId
 }
 
 export async function updateOrder(id: string, input: OrderInput) {
-  await db.transaction('rw', [db.orders, db.tasks, db.images], async () => {
-    const prev = await db.orders.get(id)
-    if (!prev) return
+  const prev = await db.orders.get(id)
+  if (!prev) return
+  await db.transaction('rw', [db.orders, db.images], async () => {
     await db.orders.update(id, { ...input, updatedAt: Date.now() })
-    // Teslim tarihi değiştiyse bitmemiş işleri aynı miktarda kaydır
-    if (prev.deliveryDate !== input.deliveryDate) {
-      const delta = diffDays(input.deliveryDate, prev.deliveryDate)
-      const tasks = await db.tasks.where('orderId').equals(id).toArray()
-      await Promise.all(
-        tasks.filter((t) => !t.done).map((t) => db.tasks.update(t.id, { start: shiftDay(t.start, delta) })),
-      )
-    }
     if (prev.productType !== input.productType) {
       await db.images.where('orderId').equals(id).modify({ productType: input.productType })
     }
   })
+  // Ürün ya da büyüklük değiştiyse adımlar şablondan yeniden; yalnızca tarih değiştiyse yeniden yerleştir
+  if (prev.productType !== input.productType || (prev.amount ?? 0) !== (input.amount ?? 0)) {
+    await regenerateTasks(id)
+  } else if (prev.deliveryDate !== input.deliveryDate) {
+    await replanOrders([id], { includeManual: true })
+  }
 }
 
 export async function setOrderStatus(id: string, status: Order['status']) {
@@ -209,19 +236,133 @@ export async function addImages(orderId: string, files: Blob[], kind: ImageKind,
 
 /* ---------------- Planlama ---------------- */
 
+/** Bitmemiş şablon adımlarını silip şablondan yeniden oluşturur ve kapasiteye göre yerleştirir */
 export async function regenerateTasks(orderId: string) {
   const settings = (await db.settings.get('main'))!
   const order = await db.orders.get(orderId)
   if (!order) return
   await db.transaction('rw', db.tasks, async () => {
-    await db.tasks.where('orderId').equals(orderId).delete()
-    await db.tasks.bulkAdd(generateTasks(order, productTypeOf(settings, order.productType)))
+    const existing = await db.tasks.where('orderId').equals(orderId).toArray()
+    const doneNames = new Set(existing.filter((t) => t.done).map((t) => t.name))
+    await db.tasks.bulkDelete(existing.filter((t) => !t.done && t.tpl !== false).map((t) => t.id))
+    const fresh = templateTasks(order, productTypeOf(settings, order.productType)).filter((t) => !doneNames.has(t.name))
+    await db.tasks.bulkAdd(fresh)
+  })
+  await replanOrders([orderId], { includeManual: true })
+}
+
+export interface ReplanResult {
+  orders: number
+  late: { orderId: string; earliest?: string | null }[]
+}
+
+/**
+ * Siparişlerin bitmemiş adımlarını kapasiteye göre yeniden yerleştirir.
+ * ids verilmezse bugün ve sonrasında teslim edilecek tüm açık siparişler.
+ * Elle taşınmış adımlar (manual) includeManual verilmedikçe yerinde kalır.
+ * Teslim tarihi en geç olandan başlanır: yakın tarihli siparişler için bugüne yakın kapasite korunur.
+ */
+export async function replanOrders(
+  ids: string[] | null,
+  opts: { includeManual?: boolean; allowPast?: boolean } = {},
+): Promise<ReplanResult> {
+  return db.transaction('rw', [db.tasks, db.orders, db.settings], async () => {
+    const settings = (await db.settings.get('main'))!
+    const [orders, tasks] = await Promise.all([db.orders.toArray(), db.tasks.toArray()])
+    const t = today()
+    const cancelled = new Set(orders.filter((o) => o.status === 'iptal').map((o) => o.id))
+    const targets = orders
+      .filter((o) =>
+        ids ? ids.includes(o.id) && o.status !== 'iptal' : o.status !== 'iptal' && o.status !== 'teslim' && o.deliveryDate >= t,
+      )
+      .sort((a, b) => b.deliveryDate.localeCompare(a.deliveryDate) || b.no - a.no)
+    const targetIds = new Set(targets.map((o) => o.id))
+    const movable = (x: Task) => targetIds.has(x.orderId) && !x.done && (opts.includeManual || !x.manual)
+    let load = buildLoad(tasks.filter((x) => !movable(x) && !cancelled.has(x.orderId)))
+    const result: ReplanResult = { orders: 0, late: [] }
+    for (const o of targets) {
+      const ts = tasks.filter((x) => x.orderId === o.id && movable(x)).sort((a, b) => a.sort - b.sort)
+      if (!ts.length) continue
+      const minDate = opts.allowPast || o.deliveryDate < t ? null : t
+      const plan = planSteps(
+        settings,
+        ts.map((x) => ({ key: x.id, name: x.name, minutes: x.minutes, offset: x.offset })),
+        o.deliveryDate,
+        load,
+        minDate,
+      )
+      load = plan.load
+      result.orders++
+      if (plan.late) result.late.push({ orderId: o.id, earliest: plan.earliest })
+      await db.tasks.bulkPut(ts.map((x) => withAlloc({ ...x, manual: false }, plan.allocs[x.id] ?? {})))
+    }
+    return result
   })
 }
 
-export async function addTask(t: Omit<Task, 'id' | 'sort'>) {
+/** Adımı elle taşır: seçilen günden itibaren boş kapasiteye ileriye doğru yerleşir */
+export async function moveTask(taskId: string, from: string) {
+  await db.transaction('rw', [db.tasks, db.orders, db.settings], async () => {
+    const settings = (await db.settings.get('main'))!
+    const task = await db.tasks.get(taskId)
+    if (!task) return
+    const cancelled = new Set((await db.orders.where('status').equals('iptal').toArray()).map((o) => o.id))
+    const others = (await db.tasks.toArray()).filter((x) => x.id !== taskId && !cancelled.has(x.orderId))
+    const alloc: Alloc = fillForward(settings, buildLoad(others), task.minutes, from)
+    await db.tasks.put(withAlloc({ ...task, manual: true }, alloc))
+  })
+}
+
+/** Adımın süresini değiştirir ve yeniden yerleştirir */
+export async function setTaskMinutes(taskId: string, minutes: number) {
+  const task = await db.tasks.get(taskId)
+  if (!task) return
+  await db.tasks.update(taskId, { minutes })
+  if (task.manual) await moveTask(taskId, task.start)
+  else await replanOrders([task.orderId])
+}
+
+/** Siparişe şablon dışı adım ekler (seçilen günden itibaren yerleşir) */
+export async function addTask(t: { orderId: string; name: string; from: string; minutes: number }) {
   const count = await db.tasks.where('orderId').equals(t.orderId).count()
-  await db.tasks.add({ ...t, id: uid(), sort: count })
+  const id = uid()
+  await db.tasks.add({
+    id,
+    orderId: t.orderId,
+    name: t.name,
+    minutes: t.minutes,
+    offset: 0,
+    alloc: {},
+    start: t.from,
+    days: 1,
+    done: false,
+    sort: count,
+    tpl: false,
+  })
+  await moveTask(id, t.from)
+}
+
+/** Bir gün aralığının kapasitesini ayarlar (0 = kapalı). undefined -> haftalık varsayılana döner */
+export async function setDayCapacity(dates: string[], hours: number | undefined, note?: string) {
+  const s = (await db.settings.get('main'))!
+  const overrides = { ...s.capacityOverrides }
+  const notes = { ...(s.dayNotes ?? {}) }
+  for (const d of dates) {
+    if (hours === undefined) delete overrides[d]
+    else overrides[d] = hours
+    if (note !== undefined) {
+      if (note.trim()) notes[d] = note.trim()
+      else delete notes[d]
+    }
+  }
+  await db.settings.update('main', { capacityOverrides: overrides, dayNotes: notes })
+}
+
+/** Verilen günlerde planlı (bitmemiş) adımları olan açık siparişler */
+export async function ordersWithWorkOn(dates: string[]): Promise<string[]> {
+  const set = new Set(dates)
+  const tasks = await db.tasks.toArray()
+  return [...new Set(tasks.filter((t) => !t.done && Object.keys(t.alloc ?? {}).some((d) => set.has(d))).map((t) => t.orderId))]
 }
 
 /* ---------------- Stok ---------------- */

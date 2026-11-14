@@ -6,15 +6,14 @@ export const DEFAULT_PRODUCT_TYPES: ProductType[] = [
     label: 'Pasta',
     unit: 'kişi',
     unitPrice: 350,
-    capacityWeight: 1,
     color: '#d48a96',
     hasTiers: true,
     tasks: [
-      { name: 'Malzeme kontrolü', offset: 3, days: 1 },
-      { name: 'Kek pişirme', offset: 2, days: 1 },
-      { name: 'Dolgu ve krema', offset: 1, days: 1 },
-      { name: 'Kaplama', offset: 1, days: 1 },
-      { name: 'Süsleme ve paketleme', offset: 0, days: 1 },
+      { name: 'Malzeme kontrolü', offset: 3, fixedMin: 30, perUnitMin: 0 },
+      { name: 'Kek pişirme', offset: 2, fixedMin: 60, perUnitMin: 2 },
+      { name: 'Dolgu ve krema', offset: 1, fixedMin: 45, perUnitMin: 1.5 },
+      { name: 'Kaplama', offset: 1, fixedMin: 45, perUnitMin: 1.5 },
+      { name: 'Süsleme ve paketleme', offset: 0, fixedMin: 60, perUnitMin: 2 },
     ],
   },
   {
@@ -22,12 +21,11 @@ export const DEFAULT_PRODUCT_TYPES: ProductType[] = [
     label: 'Cupcake',
     unit: 'adet',
     unitPrice: 90,
-    capacityWeight: 0.5,
     color: '#c79a5b',
     hasTiers: false,
     tasks: [
-      { name: 'Pişirme', offset: 1, days: 1 },
-      { name: 'Krema ve süsleme', offset: 0, days: 1 },
+      { name: 'Pişirme', offset: 1, fixedMin: 45, perUnitMin: 1 },
+      { name: 'Krema ve süsleme', offset: 0, fixedMin: 20, perUnitMin: 2 },
     ],
   },
   {
@@ -35,13 +33,12 @@ export const DEFAULT_PRODUCT_TYPES: ProductType[] = [
     label: 'Butik kurabiye',
     unit: 'adet',
     unitPrice: 80,
-    capacityWeight: 0.5,
     color: '#8fae8b',
     hasTiers: false,
     tasks: [
-      { name: 'Hamur ve pişirme', offset: 3, days: 1 },
-      { name: 'Royal icing süsleme', offset: 2, days: 2 },
-      { name: 'Paketleme', offset: 0, days: 1 },
+      { name: 'Hamur ve pişirme', offset: 3, fixedMin: 60, perUnitMin: 0.5 },
+      { name: 'Royal icing süsleme', offset: 1, fixedMin: 0, perUnitMin: 4 },
+      { name: 'Paketleme', offset: 0, fixedMin: 15, perUnitMin: 0.5 },
     ],
   },
   {
@@ -49,12 +46,11 @@ export const DEFAULT_PRODUCT_TYPES: ProductType[] = [
     label: 'Magnolia',
     unit: 'adet',
     unitPrice: 120,
-    capacityWeight: 0.3,
     color: '#9a8cc2',
     hasTiers: false,
     tasks: [
-      { name: 'Hazırlık', offset: 1, days: 1 },
-      { name: 'Süsleme', offset: 0, days: 1 },
+      { name: 'Hazırlık', offset: 1, fixedMin: 30, perUnitMin: 2 },
+      { name: 'Süsleme', offset: 0, fixedMin: 15, perUnitMin: 1 },
     ],
   },
   {
@@ -62,10 +58,9 @@ export const DEFAULT_PRODUCT_TYPES: ProductType[] = [
     label: 'Diğer',
     unit: 'adet',
     unitPrice: 0,
-    capacityWeight: 0.5,
     color: '#8a9bb0',
     hasTiers: false,
-    tasks: [{ name: 'Hazırlık', offset: 0, days: 1 }],
+    tasks: [{ name: 'Hazırlık', offset: 0, fixedMin: 60, perUnitMin: 0 }],
   },
 ]
 
@@ -73,8 +68,11 @@ export function defaultSettings(): Settings {
   return {
     id: 'main',
     businessName: 'Luma Cakes',
-    weekdayCapacity: [3, 3, 3, 3, 4, 4, 2],
+    // Pazartesi..Pazar çalışma saati; Pazar kapalı
+    weekdayCapacity: [8, 8, 8, 8, 8, 8, 0],
     capacityOverrides: {},
+    dayNotes: {},
+    capacityUnit: 'saat',
     productTypes: DEFAULT_PRODUCT_TYPES,
     reminderDays: 21,
     nextOrderNo: 1,

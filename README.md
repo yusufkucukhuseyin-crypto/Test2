@@ -13,13 +13,27 @@ olmadan da çalışır.
 | **Tasarım** | Siparişe görsel yükleme: müşteri referansı, taslak / görüşme, onaylanan tasarım, bitmiş ürün. Tasarım onayı işareti |
 | **Müşteri kartları** | İletişim, Instagram, adres, alerji / diyet uyarısı, notlar, özel günler (doğum günü, yıl dönümü…). Geçmiş siparişlerin tüm detayları ve görselleriyle birlikte; tek tuşla **“Tekrarla”** |
 | **Hatırlatmalar** | Müşterinin özel günü yaklaşınca ana sayfada kimin, hangi kutlama olduğu ve kaç gün kaldığı gösterilir; oradan doğrudan sipariş açılır |
-| **Takvim** | Aylık görünüm, her gün için kapasite doluluğu (uygun / yoğun / dolu / kapalı), seçili günün teslimleri ve işleri, güne özel kapasite |
-| **Kapasite** | Haftanın her günü için varsayılan kapasite; ürün başına kapasite ağırlığı (pasta = 1, cupcake = 0,5…). Sipariş girerken o günün doluluğu ve aşım uyarısı |
-| **Üretim planı (Gantt)** | Her ürün türünün iş adımları (rota) teslim tarihinden geriye doğru otomatik planlanır. Adımları **sürükle-bırak** ile taşıma, sağ kenarından çekerek süre uzatma, günlük iş yükü, teslim tarihini aşan adım uyarısı |
+| **Takvim** | Aylık görünüm, her gün planlanan üretim saati / kapasite (uygun / yoğun / dolu / aşıldı / kapalı), seçili günün teslimleri ve işleri, güne özel kapasite ve not, tek tuşla günü kapatma |
+| **Kapasite planlama** | Haftanın her günü için **çalışma saati**; tatil / izin için tarih aralığıyla **kapalı gün** (0 saat). İş adımları teslimden geriye doğru boş kapasiteye **yayılır**, kapalı ve dolu günler atlanır; sığmayan sipariş için **kapasiteye uyan en erken ileri teslim tarihi** önerilir |
+| **Üretim planı (Gantt)** | Her ürünün iş adımları (rota) ve süreleri (sabit + kişi/adet başına) şablondan gelir. Günlük doluluk başlığı, kapalı günler taralı, adımları **sürükle-bırak** ile taşıma (bırakılan günden itibaren ilk boş kapasiteye yerleşir), “Kapasiteye göre yeniden planla”, kapasite aşımı ve teslime yetişmeyen sipariş uyarıları |
 | **Katalog** | Bitmiş ürün fotoğrafları; ürün türüne göre filtre; **“Bu modelden sipariş”** |
 | **Stok** | Malzeme miktarı ve birim maliyeti, alışta ağırlıklı ortalama maliyet, kullanım, sayım, hareket geçmişi, minimum seviye uyarısı. Siparişe malzeme yazınca **maliyet ve brüt kâr** |
 | **Raporlar** | Aylık ciro, tahsilat, ortalama sipariş, son 12 ay grafiği, ürün ve kutlama türü dağılımı, en çok sipariş veren müşteriler, bekleyen tahsilatlar |
 | **Ayarlar** | İşletme adı, renk teması, kapasite, ürün türleri / fiyatlar / iş adımları, seçenek listeleri (kek, krema, dolgu…), yedek alma / geri yükleme, örnek veri |
+
+## Kapasite planlama nasıl çalışır?
+
+1. **Kapasite:** Ayarlar’da haftanın her günü için üretime ayrılan saat girilir (varsayılan Pzt–Cmt 8 saat, Pazar kapalı).
+   Takvim’den tek bir günün, Ayarlar → *Kapalı günler* bölümünden bir tarih aralığının kapasitesi değiştirilir; 0 saat = kapalı.
+2. **İş adımları (rota):** Her ürün türünün adımları sırayla yapılır. Her adımın süresi = sabit dakika + kişi/adet başına
+   dakika; “teslimden en geç kaç gün önce bitsin” sınırı vardır (0 = teslim günü).
+3. **Yerleştirme:** Yeni siparişte adımlar teslim tarihinden geriye doğru, sırası korunarak boş kapasitesi olan günlere
+   yerleşir. Bir adım bir güne sığmazsa önceki günlere bölünür; kapalı ve dolu günler atlanır.
+4. **Sığmayan sipariş:** Bugünden önceye taşması gerekirse sipariş o tarihe yetişmez; form bunu kaydetmeden önce gösterir ve
+   kapasiteye uyan **en erken ileri tarihi** önerir. Yine de kaydedilirse işler bugünden itibaren yerleşir ve kırmızı görünür.
+5. **Değişiklik olunca:** Bir gün kapatılınca ya da kapasite azalınca o günlerde işi olan siparişlerin yeniden yerleştirilmesi
+   önerilir. Üretim planı ekranındaki “Kapasiteye göre yeniden planla” tüm açık siparişleri yeniden yerleştirir; elle
+   taşınan adımlar yerinde kalır.
 
 ## Verilerin saklanması (önemli)
 

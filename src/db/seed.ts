@@ -1,8 +1,9 @@
 import { db } from './db'
-import { ensureSettings } from './actions'
+import { ensureSettings, replanOrders } from './actions'
 import type { Customer, Order, OrderImage, Payment, StockItem, StockMove, Task } from './types'
 import { shiftDay, today, uid } from '../lib/format'
-import { calcTotal, generateTasks, productTypeOf } from '../lib/domain'
+import { calcTotal, productTypeOf } from '../lib/domain'
+import { nextOpenDay, templateTasks } from '../lib/schedule'
 
 /** Örnek görsel: basit bir pasta çizimi */
 async function drawCake(color: string, tiers: number, bg: string): Promise<{ blob: Blob; thumb: Blob }> {
@@ -47,8 +48,17 @@ async function drawCake(color: string, tiers: number, bg: string): Promise<{ blo
 }
 
 export async function loadDemoData() {
-  const settings = await ensureSettings()
+  let settings = await ensureSettings()
   const t = today()
+  // Örnek: 5 gün sonrası kapalı (izin günü) — kapasite planlamanın kapalı günleri atladığını göstermek için
+  const closedDay = shiftDay(t, 5)
+  if (settings.capacityOverrides[closedDay] === undefined) {
+    await db.settings.update('main', {
+      capacityOverrides: { ...settings.capacityOverrides, [closedDay]: 0 },
+      dayNotes: { ...(settings.dayNotes ?? {}), [closedDay]: 'İzin (örnek)' },
+    })
+    settings = await ensureSettings()
+  }
   const now = Date.now()
 
   const mk = (c: Partial<Customer> & { name: string; phone: string }): Customer => ({
@@ -164,7 +174,8 @@ export async function loadDemoData() {
     const extras = (s.extras ?? []).map(([label, amount]) => ({ id: uid(), label, amount }))
     const total = calcTotal(pt.unitPrice, s.amount, extras)
     const agreed = Math.round(total / 50) * 50
-    const deliveryDate = shiftDay(t, s.d)
+    // Kapalı güne denk gelen örnek teslimleri sonraki açık güne al
+    const deliveryDate = s.d > 0 ? nextOpenDay(settings, shiftDay(t, s.d)) : shiftDay(t, s.d)
     const o: Order = {
       id: uid(),
       no: no++,
@@ -200,10 +211,7 @@ export async function loadDemoData() {
     if (s.paid) {
       payments.push({ id: uid(), orderId: o.id, kind: 'odeme', amount: agreed - dep, method: 'Nakit', date: deliveryDate, createdAt: now })
     }
-    const ts = generateTasks(o, pt)
-    if (s.d < 0) ts.forEach((x) => (x.done = true))
-    if (s.d === 0) ts.forEach((x) => (x.done = x.start < t))
-    tasks.push(...ts)
+    tasks.push(...templateTasks(o, pt))
     if (s.img) {
       const pic = await drawCake(pt.color, s.img[1], s.img[0])
       images.push({
@@ -250,4 +258,20 @@ export async function loadDemoData() {
     await db.stockMoves.bulkAdd(moves)
     await db.settings.update('main', { nextOrderNo: no })
   })
+
+  // İş adımlarını kapasiteye göre yerleştir: önce gelecek siparişler, sonra geçmiş/bugün
+  await replanOrders(orders.filter((o) => o.deliveryDate > t).map((o) => o.id), { includeManual: true })
+  await replanOrders(orders.filter((o) => o.deliveryDate <= t).map((o) => o.id), { includeManual: true, allowPast: true })
+  // Geçmiş siparişlerin işleri bitti; bugünkü siparişin bugünden önceki işleri bitti
+  const pastIds = new Set(orders.filter((o) => o.deliveryDate <= t).map((o) => o.id))
+  const all = await db.tasks.toArray()
+  await db.tasks.bulkPut(
+    all
+      .filter((x) => pastIds.has(x.orderId))
+      .map((x) => {
+        const o = orders.find((y) => y.id === x.orderId)!
+        const last = Object.keys(x.alloc).sort().pop() ?? x.start
+        return { ...x, done: o.deliveryDate < t || last < t }
+      }),
+  )
 }

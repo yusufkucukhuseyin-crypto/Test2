@@ -1,30 +1,30 @@
-import { useMemo, useState, type PointerEvent as RPointerEvent } from 'react'
+import { useCallback, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { startOfWeek } from 'date-fns'
-import { Cake, Check, ChevronLeft, ChevronRight, ExternalLink, Trash2, Wand2 } from 'lucide-react'
+import { AlertTriangle, CalendarCheck, Cake, Check, ChevronLeft, ChevronRight, ExternalLink, Lock, Trash2, Wand2 } from 'lucide-react'
 import { db } from '../db/db'
-import { regenerateTasks } from '../db/actions'
+import { moveTask, regenerateTasks, replanOrders, setTaskMinutes } from '../db/actions'
 import type { Order, Settings, Task } from '../db/types'
-import { useCoreData, sortByDelivery } from '../lib/data'
+import { useCoreData, usePlanData, sortByDelivery } from '../lib/data'
 import { useMediaQuery, useSettings } from '../lib/hooks'
-import { TONE_STYLE, dayLoad, loadTone, orderSummary, productTypeOf, taskCovers, taskEnd, weekdayIndex } from '../lib/domain'
-import { WEEKDAYS_SHORT, diffDays, fmtDate, isoDate, num, shiftDay, today } from '../lib/format'
-import { Button, Card, EmptyState, Field, IconButton, Input, Modal, PageHeader, Segmented, Select, Toggle, cx, useToast } from '../components/ui'
+import { orderSummary, productTypeOf, taskEnd, weekdayIndex } from '../lib/domain'
+import { WEEKDAYS_SHORT, diffDays, fmtDate, isoDate, shiftDay, today } from '../lib/format'
+import { TONE, allocDays, dayUsage, fmtHours, fmtMin, taskIssue, usageTone, type Load } from '../lib/schedule'
+import { ask, tell } from '../components/confirm'
+import { Button, Card, EmptyState, Field, IconButton, Input, Modal, NumberInput, PageHeader, Segmented, Toggle, cx, useToast } from '../components/ui'
 
 const LANE_H = 34
 
 interface Drag {
   id: string
-  mode: 'move' | 'resize'
   startX: number
   dx: number
 }
 
 export default function Planning() {
   const settings = useSettings()
-  const data = useCoreData()
-  const tasks = useLiveQuery(() => db.tasks.toArray(), [])
+  const core = useCoreData()
+  const plan = usePlanData()
   const wide = useMediaQuery('(min-width: 768px)')
   const toast = useToast()
   // Tablette haftanın başından, telefonda dünden başla (dar ekranda geçmiş günler yer kaplamasın)
@@ -35,9 +35,21 @@ export default function Planning() {
   const [showDelivered, setShowDelivered] = useState(false)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [editing, setEditing] = useState<Task | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  const COL = wide ? (span === '7' ? 100 : 76) : span === '7' ? 66 : 54
-  const LABEL = wide ? 220 : 128
+  const [boxW, setBoxW] = useState(0)
+  const boxRef = useRef<ResizeObserver | null>(null)
+  const measure = useCallback((el: HTMLDivElement | null) => {
+    boxRef.current?.disconnect()
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setBoxW(e.contentRect.width))
+    ro.observe(el)
+    boxRef.current = ro
+  }, [])
+  const LABEL = wide ? 200 : 128
+  // Sütunlar ekrana sığacak kadar genişler; en dar sınırın altında yatay kaydırma olur
+  const minCol = wide ? (span === '7' ? 88 : 64) : span === '7' ? 70 : 58
+  const COL = Math.max(minCol, boxW ? Math.floor((boxW - LABEL) / Number(span)) : minCol)
   const n = Number(span)
   const days = useMemo(() => Array.from({ length: n }, (_, i) => shiftDay(start, i)), [start, n])
   const end = days[days.length - 1]
@@ -45,17 +57,17 @@ export default function Planning() {
 
   const tasksByOrder = useMemo(() => {
     const m = new Map<string, Task[]>()
-    for (const x of tasks ?? []) {
+    for (const x of plan?.tasks ?? []) {
       const arr = m.get(x.orderId) ?? []
       arr.push(x)
       m.set(x.orderId, arr)
     }
     return m
-  }, [tasks])
+  }, [plan])
 
   const rows = useMemo(() => {
-    if (!data) return []
-    return data.orders
+    if (!plan) return []
+    return plan.orders
       .filter((o) => o.status !== 'iptal' && (showDelivered || o.status !== 'teslim'))
       .filter(
         (o) =>
@@ -63,36 +75,66 @@ export default function Planning() {
           (tasksByOrder.get(o.id) ?? []).some((x) => x.start <= end && taskEnd(x) >= start),
       )
       .sort(sortByDelivery)
-  }, [data, tasksByOrder, start, end, showDelivered])
+  }, [plan, tasksByOrder, start, end, showDelivered])
 
-  if (!settings || !data || !tasks) return null
+  // Uyarılar: önümüzdeki 30 günde kapasite aşımı ve teslime yetişmeyen siparişler
+  const issues = useMemo(() => {
+    if (!plan || !settings) return { over: [] as string[], late: [] as Order[] }
+    const over: string[] = []
+    for (let i = 0; i < 30; i++) {
+      const d = shiftDay(t, i)
+      if (usageTone(dayUsage(settings, plan.load, d)) === 'asim') over.push(d)
+    }
+    const late = plan.orders.filter(
+      (o) => o.status !== 'iptal' && o.status !== 'teslim' && (tasksByOrder.get(o.id) ?? []).some((x) => taskIssue(x, o.deliveryDate, t) === 'gec'),
+    )
+    return { over, late }
+  }, [plan, settings, tasksByOrder, t])
 
-  const workload = days.map((d) => tasks.filter((x) => !x.done && taskCovers(x, d)).length)
-  const maxWork = Math.max(1, ...workload)
+  if (!settings || !plan || !core) return null
 
-  const onDown = (e: RPointerEvent, task: Task, mode: Drag['mode']) => {
+  const onDown = (e: RPointerEvent, task: Task) => {
+    if (task.done) return
     e.stopPropagation()
-    const bar = (e.currentTarget as HTMLElement).closest('[data-bar]') as HTMLElement
-    bar.setPointerCapture(e.pointerId)
-    setDrag({ id: task.id, mode, startX: e.clientX, dx: 0 })
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    setDrag({ id: task.id, startX: e.clientX, dx: 0 })
   }
   const onMove = (e: RPointerEvent) => {
     if (drag) setDrag({ ...drag, dx: e.clientX - drag.startX })
   }
   const onUp = async (task: Task) => {
-    if (!drag) return
-    const delta = Math.round(drag.dx / COL)
+    if (!drag) {
+      setEditing(task)
+      return
+    }
     const d = drag
     setDrag(null)
     if (Math.abs(d.dx) < 5) {
-      if (d.mode === 'move') setEditing(task)
+      setEditing(task)
       return
     }
-    if (delta === 0) return
-    if (d.mode === 'move') {
-      await db.tasks.update(task.id, { start: shiftDay(task.start, delta) })
-    } else {
-      await db.tasks.update(task.id, { days: Math.max(1, task.days + delta) })
+    const delta = Math.round(d.dx / COL)
+    if (delta !== 0) await moveTask(task.id, shiftDay(task.start, delta))
+  }
+
+  const replanAll = async () => {
+    const ok = await ask(
+      'Bugünden sonra teslim edilecek tüm açık siparişlerin bitmemiş işleri, günlük kapasitelere göre teslim tarihlerinden geriye doğru yeniden yerleştirilecek. Kapalı günler atlanır.\n\nElle taşıdığınız adımlar yerinde kalır.',
+      { confirmLabel: 'Yeniden planla', danger: false },
+    )
+    if (!ok) return
+    setBusy(true)
+    try {
+      const r = await replanOrders(null)
+      if (r.late.length) {
+        const lines = r.late.map((l) => {
+          const o = plan.orderById.get(l.orderId)
+          return `• ${o ? core.customerById.get(o.customerId)?.name : ''} (#${o?.no}) — teslim ${o ? fmtDate(o.deliveryDate, 'd MMM') : ''}${l.earliest ? `, en erken ${fmtDate(l.earliest, 'd MMM EEE')}` : ''}`
+        })
+        await tell(`${r.orders} sipariş yeniden planlandı. Şunlar teslim tarihine kapasiteye sığmıyor ve bugünden itibaren yerleştirildi:\n${lines.join('\n')}`)
+      } else toast(`${r.orders} sipariş kapasiteye göre planlandı`)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -100,7 +142,7 @@ export default function Planning() {
     <div>
       <PageHeader
         title="Üretim planı"
-        subtitle="İş adımlarını sürükleyerek taşıyın, sağ kenarından çekerek uzatın"
+        subtitle="İşler teslimden geriye doğru günlük kapasiteye göre yerleşir · sürükleyerek başka güne alın"
         actions={
           <div className="flex flex-wrap items-center gap-1">
             <IconButton label="Geri" onClick={() => setStart(shiftDay(start, -7))}>
@@ -123,58 +165,86 @@ export default function Planning() {
           </div>
         }
       />
+
+      {(issues.over.length > 0 || issues.late.length > 0) && (
+        <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1 space-y-1">
+              {issues.over.length > 0 && (
+                <div>
+                  Kapasitesi aşılan günler: <b>{issues.over.slice(0, 5).map((d) => fmtDate(d, 'd MMM EEE')).join(', ')}</b>
+                  {issues.over.length > 5 ? ` +${issues.over.length - 5}` : ''}
+                </div>
+              )}
+              {issues.late.length > 0 && (
+                <div>
+                  Teslime yetişmeyen: <b>{issues.late.map((o) => `${core.customerById.get(o.customerId)?.name} (${fmtDate(o.deliveryDate, 'd MMM')})`).join(', ')}</b>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm text-muted">
           {fmtDate(start, 'd MMM')} – {fmtDate(end, 'd MMM yyyy')}
         </div>
-        <Toggle checked={showDelivered} onChange={setShowDelivered} label="Teslim edilenleri göster" />
+        <div className="flex flex-wrap items-center gap-3">
+          <Toggle checked={showDelivered} onChange={setShowDelivered} label="Teslim edilenler" />
+          <Button size="sm" variant="primary" icon={<CalendarCheck size={15} />} disabled={busy} onClick={replanAll}>
+            Kapasiteye göre yeniden planla
+          </Button>
+        </div>
       </div>
 
       <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" ref={measure}>
           <div style={{ width: LABEL + COL * n }} className="select-none">
-            {/* Gün başlıkları */}
+            {/* Gün başlıkları + kapasite */}
             <div className="sticky top-0 z-10 flex border-b border-line bg-stone-50">
               <div style={{ width: LABEL }} className="sticky left-0 z-10 shrink-0 border-r border-line bg-stone-50 px-3 py-2 text-xs font-medium text-muted">
                 Sipariş
+                <div className="mt-3 font-normal">Doluluk (saat)</div>
               </div>
               {days.map((d) => {
-                const l = dayLoad(settings, data.orders, d)
-                const tone = TONE_STYLE[loadTone(l)]
+                const u = dayUsage(settings, plan.load, d)
+                const tone = usageTone(u)
                 return (
                   <div
                     key={d}
                     style={{ width: COL }}
-                    className={cx('shrink-0 border-r border-line px-1 py-1.5 text-center', d === t && 'bg-accent-soft')}
+                    className={cx(
+                      'shrink-0 border-r border-line px-1.5 py-1.5 text-center',
+                      d === t && 'bg-accent-soft',
+                      u.closed && 'bg-stone-100',
+                    )}
+                    title={settings.dayNotes?.[d]}
                   >
                     <div className="text-[11px] text-muted">{WEEKDAYS_SHORT[weekdayIndex(d)]}</div>
                     <div className={cx('text-sm font-semibold', d === t && 'text-accent-ink')}>{Number(d.slice(8))}</div>
-                    <div className={cx('text-[10px] leading-tight', tone.text)} title="Teslim kapasitesi">
-                      {num(l.load)}/{num(l.capacity)}
-                    </div>
+                    {u.closed ? (
+                      <div className={cx('mt-1 flex items-center justify-center gap-0.5 text-[10px]', tone === 'asim' ? 'font-semibold text-red-600' : 'text-stone-500')}>
+                        <Lock size={10} /> {tone === 'asim' ? 'iş var' : 'kapalı'}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-stone-200">
+                          <div className={cx('h-full', TONE[tone].bar)} style={{ width: `${Math.min(100, u.ratio * 100)}%` }} />
+                        </div>
+                        <div className={cx('mt-0.5 text-[10px] leading-tight tabular-nums', TONE[tone].text)}>
+                          {fmtHours(u.used)}/{fmtHours(u.cap)}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )
               })}
             </div>
-            {/* İş yükü satırı */}
-            <div className="flex border-b border-line">
-              <div style={{ width: LABEL }} className="sticky left-0 z-10 shrink-0 border-r border-line bg-white px-3 py-1.5 text-xs text-muted">
-                Günlük iş yükü
-              </div>
-              {days.map((d, i) => (
-                <div key={d} style={{ width: COL }} className="flex shrink-0 items-end justify-center border-r border-line px-2 py-1.5">
-                  <div className="flex w-full flex-col items-center gap-0.5">
-                    <div className="flex h-6 w-full items-end">
-                      <div className="w-full rounded-sm bg-accent/60" style={{ height: `${(workload[i] / maxWork) * 100}%`, minHeight: workload[i] ? 3 : 0 }} />
-                    </div>
-                    <span className="text-[10px] text-muted">{workload[i] || ''}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
 
             {rows.length === 0 && (
-              <EmptyState title="Bu aralıkta planlanacak iş yok" text="Siparişler oluşturulduğunda iş adımları ürün şablonuna göre otomatik eklenir." />
+              <EmptyState title="Bu aralıkta planlanacak iş yok" text="Siparişler oluşturulduğunda iş adımları ürün şablonuna göre kapasiteye yerleştirilir." />
             )}
 
             {rows.map((o) => (
@@ -182,16 +252,17 @@ export default function Planning() {
                 key={o.id}
                 order={o}
                 tasks={tasksByOrder.get(o.id) ?? []}
-                customerName={data.customerById.get(o.customerId)?.name ?? ''}
+                customerName={core.customerById.get(o.customerId)?.name ?? ''}
                 days={days}
                 start={start}
                 col={COL}
                 label={LABEL}
                 drag={drag}
+                settings={settings}
+                load={plan.load}
                 onDown={onDown}
                 onMove={onMove}
                 onUp={onUp}
-                settings={settings}
                 onGenerate={async () => {
                   await regenerateTasks(o.id)
                   toast('Plan oluşturuldu')
@@ -202,8 +273,9 @@ export default function Planning() {
         </div>
       </Card>
       <p className="mt-3 text-xs text-muted">
-        İpucu: Bir adıma dokunarak tamamlandı işaretleyebilir, adını ve süresini değiştirebilirsiniz. Adımlar ürün türüne göre
-        Ayarlar’daki şablondan (rota) oluşturulur.
+        Bir adımı sürükleyip bıraktığınızda bırakılan günden itibaren ilk boş kapasiteye yerleşir (kapalı ve dolu günler atlanır) ve
+        “elle yerleştirildi” olarak işaretlenir. Dokunarak süresini değiştirebilir, tamamlandı işaretleyebilirsiniz. Adım süreleri ve
+        sıraları Ayarlar’daki ürün şablonlarından gelir.
       </p>
       <TaskModal task={editing} onClose={() => setEditing(null)} />
     </div>
@@ -219,13 +291,13 @@ function GanttRow({
   col,
   label,
   drag,
+  settings,
+  load,
   onDown,
   onMove,
   onUp,
   onGenerate,
-  settings,
 }: {
-  settings: Settings
   order: Order
   tasks: Task[]
   customerName: string
@@ -234,7 +306,9 @@ function GanttRow({
   col: number
   label: number
   drag: Drag | null
-  onDown: (e: RPointerEvent, t: Task, mode: Drag['mode']) => void
+  settings: Settings
+  load: Load
+  onDown: (e: RPointerEvent, t: Task) => void
   onMove: (e: RPointerEvent) => void
   onUp: (t: Task) => void
   onGenerate: () => void
@@ -261,6 +335,7 @@ function GanttRow({
 
   const height = Math.max(76, lanes.count * LANE_H + 12)
   const deliveryIdx = diffDays(order.deliveryDate, start)
+  const late = tasks.some((x) => taskIssue(x, order.deliveryDate, t) === 'gec')
 
   return (
     <div className={cx('flex border-b border-line', order.status === 'teslim' && 'opacity-60')}>
@@ -269,9 +344,10 @@ function GanttRow({
           {customerName}
         </Link>
         <div className="truncate text-xs text-muted">{orderSummary(order, pt)}</div>
-        <div className={cx('text-xs', order.deliveryDate < t ? 'text-muted' : 'text-accent-ink')}>
+        <div className={cx('text-xs', late ? 'font-medium text-red-600' : order.deliveryDate < t ? 'text-muted' : 'text-accent-ink')}>
           Teslim {fmtDate(order.deliveryDate, 'd MMM')}
           {order.deliveryTime ? ` ${order.deliveryTime}` : ''}
+          {late ? ' · yetişmiyor' : ''}
         </div>
         {tasks.length === 0 && (
           <button type="button" onClick={onGenerate} className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-accent-ink">
@@ -280,62 +356,81 @@ function GanttRow({
         )}
       </div>
       <div className="relative shrink-0 overflow-hidden" style={{ width: col * days.length, height }}>
-        {/* ızgara */}
+        {/* ızgara: kapalı günler taralı */}
         <div className="absolute inset-0 flex">
           {days.map((d) => (
-            <div key={d} style={{ width: col }} className={cx('shrink-0 border-r border-line/70', d === t && 'bg-accent-soft/40')} />
+            <div
+              key={d}
+              style={{ width: col }}
+              className={cx(
+                'shrink-0 border-r border-line/70',
+                d === t && 'bg-accent-soft/40',
+                dayUsage(settings, load, d).closed &&
+                  'bg-[repeating-linear-gradient(135deg,transparent,transparent_6px,rgba(120,113,108,0.10)_6px,rgba(120,113,108,0.10)_12px)]',
+              )}
+            />
           ))}
         </div>
         {/* teslim işareti */}
         {deliveryIdx >= 0 && deliveryIdx < days.length && (
-          <div className="absolute top-0 bottom-0 flex flex-col items-center" style={{ left: deliveryIdx * col + col - 12, width: 12 }}>
-            <div className="h-full w-0.5 bg-accent/50" />
-            <Cake size={14} className="absolute top-1 text-accent" />
+          <div className="absolute top-0 bottom-0" style={{ left: deliveryIdx * col + col - 8, width: 2 }}>
+            <div className="h-full w-0.5 bg-accent/60" />
+            <Cake size={14} className="absolute top-1 -left-[6px] text-accent" />
           </div>
         )}
         {tasks.map((x) => {
           const lane = lanes.map.get(x.id) ?? 0
           const isDrag = drag?.id === x.id
           const delta = isDrag ? Math.round(drag.dx / col) : 0
-          const s = diffDays(x.start, start) + (isDrag && drag.mode === 'move' ? delta : 0)
-          const w = Math.max(1, x.days + (isDrag && drag.mode === 'resize' ? delta : 0))
-          const late = (isDrag && drag.mode === 'move' ? shiftDay(x.start, delta) : x.start) > order.deliveryDate ||
-            taskEnd({ ...x, start: isDrag && drag.mode === 'move' ? shiftDay(x.start, delta) : x.start, days: w }) > order.deliveryDate
-          return (
-            <div
-              key={x.id}
-              data-bar
-              onPointerDown={(e) => onDown(e, x, 'move')}
-              onPointerMove={onMove}
-              onPointerUp={() => onUp(x)}
-              onPointerCancel={() => onUp(x)}
-              className={cx(
-                'absolute flex cursor-grab touch-none items-center gap-1 overflow-hidden rounded-lg px-2 text-xs font-medium text-ink shadow-sm transition-shadow',
-                isDrag && 'z-20 cursor-grabbing shadow-lg ring-2 ring-accent',
-                x.done && 'opacity-55',
-                late && 'ring-2 ring-red-400',
-              )}
-              style={{
-                left: s * col + 3,
-                width: w * col - 6,
-                top: 6 + lane * LANE_H,
-                height: LANE_H - 6,
-                background: pt.color + (x.done ? '40' : '66'),
-                borderLeft: `3px solid ${pt.color}`,
-              }}
-              title={`${x.name} · ${fmtDate(x.start, 'd MMM')}${x.days > 1 ? ` – ${fmtDate(taskEnd(x), 'd MMM')}` : ''}`}
-            >
-              {x.done && <Check size={12} className="shrink-0" />}
-              <span className={cx('truncate', x.done && 'line-through')}>{x.name}</span>
+          const issue = taskIssue(x, order.deliveryDate, t)
+          const ad = allocDays(x)
+          // Ardışık günleri tek parça çiz; kapalı gün araya girerse parça bölünür
+          const segs: { from: string; to: string }[] = []
+          for (const d of ad) {
+            const last = segs[segs.length - 1]
+            if (last && diffDays(d, last.to) === 1) last.to = d
+            else segs.push({ from: d, to: d })
+          }
+          return segs.map((sg, si) => {
+            const s = diffDays(sg.from, start) + delta
+            const w = diffDays(sg.to, sg.from) + 1
+            if (s + w < 0 || s > days.length) return null
+            const mins = Object.entries(x.alloc)
+              .filter(([d]) => d >= sg.from && d <= sg.to)
+              .reduce((a, [, m]) => a + m, 0)
+            return (
               <div
-                onPointerDown={(e) => onDown(e, x, 'resize')}
-                className="absolute top-0 right-0 bottom-0 w-3 cursor-ew-resize"
-                aria-label="Süreyi değiştir"
+                key={x.id + si}
+                data-bar={x.id}
+                onPointerDown={(e) => onDown(e, x)}
+                onPointerMove={onMove}
+                onPointerUp={() => onUp(x)}
+                onPointerCancel={() => onUp(x)}
+                className={cx(
+                  'absolute flex touch-none items-center gap-1 overflow-hidden rounded-lg px-2 text-xs font-medium text-ink shadow-sm transition-shadow',
+                  x.done ? 'cursor-pointer opacity-55' : 'cursor-grab',
+                  isDrag && 'z-20 cursor-grabbing shadow-lg ring-2 ring-accent',
+                  issue === 'gec' && 'ring-2 ring-red-400',
+                  x.manual && !isDrag && 'outline-1 outline-sky-400 outline-dashed',
+                )}
+                style={{
+                  left: s * col + 3,
+                  width: w * col - 6,
+                  top: 6 + lane * LANE_H,
+                  height: LANE_H - 6,
+                  background: pt.color + (x.done ? '40' : '66'),
+                  borderLeft: `3px solid ${pt.color}`,
+                }}
+                title={`${x.name} · ${fmtMin(x.minutes)}\n${ad.map((d) => `${fmtDate(d, 'd MMM EEE')}: ${fmtMin(x.alloc[d])}`).join('\n')}`}
               >
-                <div className="absolute top-1/2 right-1 h-3 w-0.5 -translate-y-1/2 rounded bg-ink/30" />
+                {x.done && <Check size={12} className="shrink-0" />}
+                <span className={cx('truncate', x.done && 'line-through')}>
+                  {si === 0 ? x.name : '↳ ' + x.name}
+                  <span className="ml-1 font-normal opacity-70">{fmtMin(mins)}</span>
+                </span>
               </div>
-            </div>
-          )
+            )
+          })
         })}
       </div>
     </div>
@@ -343,21 +438,23 @@ function GanttRow({
 }
 
 function TaskModal({ task, onClose }: { task: Task | null; onClose: () => void }) {
-  const [form, setForm] = useState<Task | null>(null)
+  const toast = useToast()
+  const [form, setForm] = useState<{ name: string; minutes?: number; from: string; done: boolean } | null>(null)
   const [lastId, setLastId] = useState<string>()
   if (task && task.id !== lastId) {
     setLastId(task.id)
-    setForm(task)
+    setForm({ name: task.name, minutes: task.minutes, from: task.start, done: task.done })
   }
   if (!task || !form) return null
-  const save = async () => {
-    await db.tasks.update(task.id, { name: form.name, start: form.start, days: form.days, done: form.done })
-    setLastId(undefined)
-    onClose()
-  }
   const close = () => {
     setLastId(undefined)
     onClose()
+  }
+  const save = async () => {
+    await db.tasks.update(task.id, { name: form.name.trim() || task.name, done: form.done })
+    if ((form.minutes ?? 0) !== task.minutes) await setTaskMinutes(task.id, form.minutes ?? 0)
+    if (form.from !== task.start && !form.done) await moveTask(task.id, form.from)
+    close()
   }
   return (
     <Modal
@@ -387,22 +484,39 @@ function TaskModal({ task, onClose }: { task: Task | null; onClose: () => void }
           <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Başlangıç">
-            <Input type="date" value={form.start} onChange={(e) => e.target.value && setForm({ ...form, start: e.target.value })} />
+          <Field label="İş süresi (dakika)" hint={form.minutes ? fmtMin(form.minutes) : undefined}>
+            <NumberInput value={form.minutes} onChange={(v) => setForm({ ...form, minutes: v })} min={0} step={15} />
           </Field>
-          <Field label="Süre">
-            <Select value={form.days} onChange={(e) => setForm({ ...form, days: Number(e.target.value) })}>
-              {[1, 2, 3, 4, 5, 6, 7].map((d) => (
-                <option key={d} value={d}>
-                  {d} gün
-                </option>
-              ))}
-            </Select>
+          <Field label="Bu günden itibaren" hint="İlk boş kapasiteye yerleşir">
+            <Input type="date" value={form.from} onChange={(e) => e.target.value && setForm({ ...form, from: e.target.value })} />
           </Field>
         </div>
+        <div className="rounded-xl bg-stone-50 p-3 text-sm">
+          <div className="mb-1 text-xs text-muted">Şu anki dağılım</div>
+          {allocDays(task).map((d) => (
+            <div key={d} className="flex justify-between">
+              <span>{fmtDate(d, 'd MMMM EEEE')}</span>
+              <span className="tabular-nums">{fmtMin(task.alloc[d])}</span>
+            </div>
+          ))}
+        </div>
         <Toggle checked={form.done} onChange={(v) => setForm({ ...form, done: v })} label="Tamamlandı" />
-        <Link to={`/siparisler/${task.orderId}`} className="inline-flex items-center gap-1 text-sm text-accent-ink underline" onClick={close}>
-          <ExternalLink size={14} /> Siparişe git
+        {task.manual && (
+          <Button
+            size="sm"
+            icon={<Wand2 size={15} />}
+            onClick={async () => {
+              await db.tasks.update(task.id, { manual: false })
+              await replanOrders([task.orderId])
+              toast('Adım otomatik plana döndü')
+              close()
+            }}
+          >
+            Otomatik plana döndür
+          </Button>
+        )}
+        <Link to={`/siparisler/${task.orderId}`} className="block text-sm text-accent-ink underline" onClick={close}>
+          <ExternalLink size={14} className="mr-1 inline" /> Siparişe git
         </Link>
       </div>
     </Modal>

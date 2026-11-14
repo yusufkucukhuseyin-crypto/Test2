@@ -109,10 +109,22 @@ export interface Task {
   id: ID
   orderId: ID
   name: string
-  start: string // yyyy-MM-dd
+  /** Toplam iş süresi (dakika) */
+  minutes: number
+  /** Teslimden en geç kaç gün önce bitmeli (0 = teslim günü) */
+  offset: number
+  /** Günlere dağıtım: yyyy-MM-dd -> dakika */
+  alloc: Record<string, number>
+  /** alloc'tan türetilir: ilk gün */
+  start: string
+  /** alloc'tan türetilir: ilk ile son gün arası takvim günü */
   days: number
   done: boolean
   sort: number
+  /** Elle taşındı: otomatik yeniden planlamada yerinde kalır */
+  manual?: boolean
+  /** Ürün şablonundan geldi */
+  tpl?: boolean
 }
 
 export interface StockItem {
@@ -147,9 +159,12 @@ export interface StockMove {
 
 export interface TaskTemplate {
   name: string
-  /** Teslimden kaç gün önce başlar (0 = teslim günü) */
+  /** Teslimden en geç kaç gün önce yapılmalı (0 = teslim günü) */
   offset: number
-  days: number
+  /** Siparişten bağımsız sabit süre (dakika) */
+  fixedMin: number
+  /** Kişi / adet başına ek süre (dakika) */
+  perUnitMin: number
 }
 
 export interface ProductType {
@@ -158,8 +173,8 @@ export interface ProductType {
   /** Fiyatlandırma birimi */
   unit: 'kişi' | 'adet'
   unitPrice: number
-  /** Günlük kapasiteden ne kadar yer kaplar (pasta = 1) */
-  capacityWeight: number
+  /** @deprecated eski sürümden kalma (teslim adedi bazlı kapasite) */
+  capacityWeight?: number
   color: string
   hasTiers: boolean
   tasks: TaskTemplate[]
@@ -182,10 +197,14 @@ export interface OptionLists {
 export interface Settings {
   id: 'main'
   businessName: string
-  /** Pazartesi..Pazar günlük kapasite */
+  /** Pazartesi..Pazar günlük çalışma kapasitesi (saat) */
   weekdayCapacity: number[]
-  /** Belirli günler için kapasite (yyyy-MM-dd -> kapasite) */
+  /** Belirli günler için kapasite (yyyy-MM-dd -> saat, 0 = kapalı) */
   capacityOverrides: Record<string, number>
+  /** Belirli günler için not (Bayram, izin…) */
+  dayNotes: Record<string, string>
+  /** Kapasite birimi; eski sürümden geçişi anlamak için */
+  capacityUnit?: 'saat'
   productTypes: ProductType[]
   options: OptionLists
   reminderDays: number

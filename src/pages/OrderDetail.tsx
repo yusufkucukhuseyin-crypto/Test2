@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle,
+  CalendarCheck,
   Camera,
   Check,
   ChartGantt,
@@ -23,14 +24,19 @@ import {
   deleteOrder,
   deletePayment,
   deleteStockMove,
+  moveTask,
   regenerateTasks,
+  replanOrders,
+  setTaskMinutes,
   setOrderStatus,
 } from '../db/actions'
 import type { ImageKind, Order, OrderImage, PaymentKind, Settings } from '../db/types'
-import { STATUS, STATUS_ORDER, depositTotal, orderSummary, paidTotal, productTypeOf, taskEnd } from '../lib/domain'
+import { STATUS, STATUS_ORDER, depositTotal, orderSummary, paidTotal, productTypeOf } from '../lib/domain'
 import { fmtDate, fmtDateShort, money, num, relDay, telLink, today, waLink } from '../lib/format'
 import { useSettings } from '../lib/hooks'
-import { CapacityHint, IMAGE_KINDS, StatusBadge, Thumb } from '../components/shared'
+import { IMAGE_KINDS, StatusBadge, Thumb } from '../components/shared'
+import { OrderPlanStatus } from '../components/PlanHint'
+import { allocDays, fmtMin, taskIssue } from '../lib/schedule'
 import { ImageViewer } from '../components/ImageViewer'
 import {
   Badge,
@@ -51,7 +57,7 @@ import {
   cx,
   useToast,
 } from '../components/ui'
-import { ask } from '../components/confirm'
+import { ask, tell } from '../components/confirm'
 
 type Tab = 'detay' | 'tasarim' | 'odeme' | 'uretim' | 'maliyet'
 
@@ -188,7 +194,7 @@ export default function OrderDetail() {
           <div className="text-sm text-muted">
             {relDay(order.deliveryDate)} · {order.deliveryMethod === 'adres' ? 'Adrese teslim' : 'Gel-al'}
           </div>
-          <CapacityHint date={order.deliveryDate} />
+          <OrderPlanStatus order={order} tasks={tasks} />
         </Card>
         <Card className="p-4">
           <div className="text-[13px] text-muted">Anlaşılan tutar</div>
@@ -520,25 +526,39 @@ function PaymentsTab({
 function TasksTab({ order, tasks }: { order: Order; tasks: import('../db/types').Task[] }) {
   const toast = useToast()
   const [name, setName] = useState('')
-  const [date, setDate] = useState(order.deliveryDate)
-  const sorted = useMemo(() => [...tasks].sort((a, b) => a.start.localeCompare(b.start) || a.sort - b.sort), [tasks])
+  const [date, setDate] = useState(() => (order.deliveryDate > today() ? today() : order.deliveryDate))
+  const [minutes, setMinutes] = useState<number | undefined>(60)
+  const t = today()
+  const sorted = useMemo(() => [...tasks].sort((a, b) => a.sort - b.sort || a.start.localeCompare(b.start)), [tasks])
+  const total = tasks.reduce((s, x) => s + x.minutes, 0)
+
+  const replan = async () => {
+    const r = await replanOrders([order.id], { includeManual: true })
+    if (r.late.length) {
+      const e = r.late[0].earliest
+      await tell(`Bu sipariş ${fmtDate(order.deliveryDate, 'd MMMM')} tarihine kapasiteye sığmıyor. İşler bugünden itibaren yerleştirildi.${e ? `\nKapasiteye uyan en erken teslim: ${fmtDate(e, 'd MMMM EEEE')}.` : ''}`)
+    } else toast('İşler kapasiteye göre yerleştirildi')
+  }
 
   return (
     <Card>
       <CardHeader
-        title="İş adımları"
+        title={`İş adımları · toplam ${fmtMin(total)}`}
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button size="sm" variant="soft" icon={<CalendarCheck size={15} />} onClick={replan}>
+              Kapasiteye göre yerleştir
+            </Button>
             <Button
               size="sm"
               icon={<RotateCcw size={15} />}
               onClick={async () => {
-                if (tasks.length && !(await ask('Mevcut adımlar silinip ürün şablonundan yeniden oluşturulsun mu?', { confirmLabel: 'Yeniden oluştur' }))) return
+                if (tasks.some((x) => !x.done) && !(await ask('Bitmemiş şablon adımları silinip ürün şablonundan yeniden oluşturulsun mu?', { confirmLabel: 'Yeniden oluştur' }))) return
                 await regenerateTasks(order.id)
-                toast('Plan şablondan oluşturuldu')
+                toast('Adımlar şablondan oluşturuldu')
               }}
             >
-              Şablondan oluştur
+              Şablondan
             </Button>
             <LinkButton size="sm" to="/planlama" icon={<ChartGantt size={15} />}>
               Gantt
@@ -546,51 +566,63 @@ function TasksTab({ order, tasks }: { order: Order; tasks: import('../db/types')
           </div>
         }
       />
+      <p className="-mt-1 px-4 pb-3 text-xs text-muted">
+        Adımlar teslimden geriye doğru, günlük kapasitesi boş olan günlere yerleşir; kapalı günler atlanır. Bir adımı başka güne
+        almak için tarihini değiştirin: o günden itibaren ilk boş kapasiteye yerleşir.
+      </p>
       <div className="divide-y divide-line border-t border-line">
-        {sorted.map((t) => {
-          const late = taskEnd(t) > order.deliveryDate
+        {sorted.map((x) => {
+          const issue = taskIssue(x, order.deliveryDate, t)
+          const days = allocDays(x)
           return (
-            <div key={t.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
-              <button
-                type="button"
-                aria-label={t.done ? 'Yapılmadı olarak işaretle' : 'Yapıldı olarak işaretle'}
-                onClick={() => db.tasks.update(t.id, { done: !t.done })}
-                className={cx(
-                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition',
-                  t.done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-stone-300',
+            <div key={x.id} className="px-4 py-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  aria-label={x.done ? 'Yapılmadı olarak işaretle' : 'Yapıldı olarak işaretle'}
+                  onClick={() => db.tasks.update(x.id, { done: !x.done })}
+                  className={cx(
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition',
+                    x.done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-stone-300',
+                  )}
+                >
+                  {x.done && <Check size={16} />}
+                </button>
+                <InlineInput
+                  className={cx('min-w-[120px] flex-1 bg-transparent text-[15px] outline-none', x.done && 'text-muted line-through')}
+                  value={x.name}
+                  onSave={(v) => db.tasks.update(x.id, { name: v })}
+                />
+                <label className="flex items-center gap-1 text-sm text-muted">
+                  <InlineNumber
+                    className="h-9 w-16 rounded-lg border border-line px-2 text-right text-sm text-ink"
+                    value={x.minutes}
+                    onSave={(v) => setTaskMinutes(x.id, v)}
+                  />
+                  dk
+                </label>
+                {!x.done && (
+                  <input
+                    type="date"
+                    aria-label="Başlangıç günü"
+                    value={x.start}
+                    onChange={(e) => e.target.value && moveTask(x.id, e.target.value)}
+                    className={cx('h-9 rounded-lg border px-2 text-sm', issue === 'gec' ? 'border-red-300 text-red-700' : 'border-line')}
+                  />
                 )}
-              >
-                {t.done && <Check size={16} />}
-              </button>
-              <InlineInput
-                className={cx('min-w-0 flex-1 bg-transparent text-[15px] outline-none', t.done && 'text-muted line-through')}
-                value={t.name}
-                onSave={(v) => db.tasks.update(t.id, { name: v })}
-              />
-              <input
-                type="date"
-                value={t.start}
-                onChange={(e) => e.target.value && db.tasks.update(t.id, { start: e.target.value })}
-                className={cx('h-9 rounded-lg border px-2 text-sm', late ? 'border-red-300 text-red-700' : 'border-line')}
-              />
-              <select
-                value={t.days}
-                onChange={(e) => db.tasks.update(t.id, { days: Number(e.target.value) })}
-                className="h-9 rounded-lg border border-line bg-white px-2 text-sm"
-              >
-                {[1, 2, 3, 4, 5].map((d) => (
-                  <option key={d} value={d}>
-                    {d} gün
-                  </option>
+                <IconButton label="Sil" onClick={() => db.tasks.delete(x.id)}>
+                  <Trash2 size={16} className="text-stone-400" />
+                </IconButton>
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-10">
+                {days.map((d) => (
+                  <span key={d} className={cx('rounded-full px-2 py-0.5 text-xs', d > order.deliveryDate ? 'bg-red-50 text-red-700' : 'bg-stone-100 text-muted')}>
+                    {fmtDateShort(d)} · {fmtMin(x.alloc[d])}
+                  </span>
                 ))}
-              </select>
-              <IconButton label="Sil" onClick={() => db.tasks.delete(t.id)}>
-                <Trash2 size={16} className="text-stone-400" />
-              </IconButton>
-              <div className="basis-full pl-10 text-xs text-muted">
-                {fmtDateShort(t.start)}
-                {t.days > 1 ? ` → ${fmtDateShort(taskEnd(t))}` : ''}
-                {late && <span className="ml-2 font-medium text-red-600">Teslim tarihinden sonra!</span>}
+                {x.manual && <Badge className="bg-sky-50 text-sky-800">Elle yerleştirildi</Badge>}
+                {issue === 'gec' && <Badge className="bg-red-100 text-red-700">Teslimden sonra bitiyor</Badge>}
+                {issue === 'gecikmis' && <Badge className="bg-amber-100 text-amber-800">Geride kaldı</Badge>}
               </div>
             </div>
           )
@@ -599,13 +631,14 @@ function TasksTab({ order, tasks }: { order: Order; tasks: import('../db/types')
       </div>
       <div className="flex flex-wrap gap-2 border-t border-line p-4">
         <Input className="min-w-[160px] flex-1" placeholder="Yeni adım (örn. Figür hazırlığı)" value={name} onChange={(e) => setName(e.target.value)} />
-        <Input type="date" className="w-auto" value={date} onChange={(e) => setDate(e.target.value)} />
+        <Input type="date" className="w-auto" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Hangi günden itibaren" />
+        <NumberInput className="w-24" value={minutes} onChange={setMinutes} placeholder="dk" aria-label="Süre (dakika)" />
         <Button
           variant="primary"
           icon={<Plus size={16} />}
           disabled={!name.trim() || !date}
           onClick={async () => {
-            await addTask({ orderId: order.id, name: name.trim(), start: date, days: 1, done: false })
+            await addTask({ orderId: order.id, name: name.trim(), from: date, minutes: minutes ?? 0 })
             setName('')
           }}
         >
@@ -708,6 +741,33 @@ function CostTab({ order, moves, cost }: { order: Order; moves: import('../db/ty
         </div>
       </Card>
     </div>
+  )
+}
+
+/** Alandan çıkınca kaydeden sayı kutusu */
+function InlineNumber({ value, onSave, className }: { value: number; onSave: (v: number) => void; className?: string }) {
+  const [v, setV] = useState(String(value))
+  const [last, setLast] = useState(value)
+  if (value !== last) {
+    setLast(value)
+    setV(String(value))
+  }
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={0}
+      className={className}
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onFocus={(e) => e.target.select()}
+      onBlur={() => {
+        const n = Math.max(0, Math.round(Number(v)))
+        if (Number.isFinite(n) && n !== value) onSave(n)
+        else setV(String(value))
+      }}
+      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+    />
   )
 }
 

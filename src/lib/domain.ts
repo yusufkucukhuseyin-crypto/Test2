@@ -9,7 +9,7 @@ import type {
   SpecialDay,
   Task,
 } from '../db/types'
-import { isoDate, parseDay, shiftDay, today, uid } from './format'
+import { isoDate, parseDay, shiftDay, today } from './format'
 
 export const STATUS_ORDER: OrderStatus[] = [
   'teklif',
@@ -46,7 +46,6 @@ export function productTypeOf(settings: Settings, key: string): ProductType {
       label: key,
       unit: 'adet',
       unitPrice: 0,
-      capacityWeight: 1,
       color: '#999999',
       hasTiers: false,
       tasks: [],
@@ -85,63 +84,15 @@ export function capacityFor(settings: Settings, date: string): number {
   return settings.weekdayCapacity[weekdayIndex(date)] ?? 0
 }
 
-export interface DayLoad {
-  load: number
-  tentative: number
-  count: number
-  capacity: number
-  ratio: number
-}
-
-export function dayLoad(settings: Settings, orders: Order[], date: string, excludeId?: string): DayLoad {
-  let load = 0
-  let tentative = 0
-  let count = 0
-  for (const o of orders) {
-    if (o.deliveryDate !== date || o.id === excludeId) continue
-    const w = productTypeOf(settings, o.productType).capacityWeight
-    if (isFirm(o.status)) {
-      load += w
-      count++
-    } else if (o.status === 'teklif') tentative += w
-  }
-  const capacity = capacityFor(settings, date)
-  return { load, tentative, count, capacity, ratio: capacity > 0 ? load / capacity : load > 0 ? Infinity : 0 }
-}
-
-export function loadTone(l: DayLoad): 'bos' | 'uygun' | 'yogun' | 'dolu' | 'kapali' {
-  if (l.capacity === 0) return l.load > 0 ? 'dolu' : 'kapali'
-  if (l.ratio >= 1) return 'dolu'
-  if (l.ratio >= 0.7) return 'yogun'
-  if (l.load > 0) return 'uygun'
-  return 'bos'
-}
-
-export const TONE_STYLE: Record<ReturnType<typeof loadTone>, { bar: string; text: string; label: string }> = {
-  bos: { bar: 'bg-emerald-300', text: 'text-emerald-700', label: 'Boş' },
-  uygun: { bar: 'bg-emerald-400', text: 'text-emerald-700', label: 'Uygun' },
-  yogun: { bar: 'bg-amber-400', text: 'text-amber-700', label: 'Yoğun' },
-  dolu: { bar: 'bg-red-400', text: 'text-red-700', label: 'Dolu' },
-  kapali: { bar: 'bg-stone-300', text: 'text-stone-500', label: 'Kapalı' },
-}
-
-export function generateTasks(order: Pick<Order, 'id' | 'deliveryDate'>, pt: ProductType): Task[] {
-  return pt.tasks.map((t, i) => ({
-    id: uid(),
-    orderId: order.id,
-    name: t.name,
-    start: shiftDay(order.deliveryDate, -t.offset),
-    days: Math.max(1, t.days),
-    done: false,
-    sort: i,
-  }))
-}
-
+/** Görevin çalışıldığı son gün */
 export function taskEnd(t: Task): string {
-  return shiftDay(t.start, t.days - 1)
+  const keys = Object.keys(t.alloc ?? {}).sort()
+  return keys.length ? keys[keys.length - 1] : shiftDay(t.start, Math.max(1, t.days) - 1)
 }
 
+/** Görev o gün çalışılıyor mu (kapalı günler arada kalsa da yalnızca dağıtılan günler) */
 export function taskCovers(t: Task, date: string): boolean {
+  if (t.alloc && Object.keys(t.alloc).length) return date in t.alloc
   return t.start <= date && date <= taskEnd(t)
 }
 

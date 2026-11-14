@@ -2,9 +2,10 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ClipboardList, Plus, Search } from 'lucide-react'
 import { endOfWeek, startOfWeek } from 'date-fns'
-import { STATUS, STATUS_ORDER, dayLoad, isOpen, loadTone, TONE_STYLE } from '../lib/domain'
-import { fmtDate, isoDate, matches, num, relDay, today } from '../lib/format'
-import { useCoreData, sortByDelivery } from '../lib/data'
+import { STATUS, STATUS_ORDER, isOpen } from '../lib/domain'
+import { TONE, dayUsage, fmtHours, usageTone } from '../lib/schedule'
+import { fmtDate, isoDate, matches, relDay, today } from '../lib/format'
+import { useCoreData, usePlanData, sortByDelivery } from '../lib/data'
 import { useSettings } from '../lib/hooks'
 import { OrderRow } from '../components/shared'
 import { Card, EmptyState, LinkButton, PageHeader, Segmented, Select, cx } from '../components/ui'
@@ -15,6 +16,7 @@ type Range = 'acik' | 'bugun' | 'hafta' | 'tum' | 'gecmis'
 export default function Orders() {
   const settings = useSettings()
   const data = useCoreData()
+  const plan = usePlanData()
   const [params, setParams] = useSearchParams()
   const [q, setQ] = useState('')
   const range = (params.get('g') as Range) ?? 'acik'
@@ -145,8 +147,8 @@ export default function Orders() {
       ) : (
         <div className="space-y-4">
           {groups.map(([date, orders]) => {
-            const l = dayLoad(settings, data.orders, date)
-            const tone = TONE_STYLE[loadTone(l)]
+            const u = plan ? dayUsage(settings, plan.load, date) : null
+            const tone = u ? TONE[usageTone(u)] : null
             return (
               <div key={date}>
                 <div className="mb-1.5 flex items-baseline justify-between px-1">
@@ -154,9 +156,9 @@ export default function Orders() {
                     {fmtDate(date, 'd MMMM EEEE')}
                     <span className="ml-2 font-normal text-muted">{relDay(date)}</span>
                   </div>
-                  {date >= t && (
-                    <span className={cx('text-xs', tone.text)}>
-                      {num(l.load)}/{num(l.capacity)} kapasite
+                  {date >= t && u && tone && (
+                    <span className={cx('text-xs', tone.text)} title="O günün üretim doluluğu">
+                      {u.closed ? 'Kapalı gün' : `${fmtHours(u.used)}/${fmtHours(u.cap)} sa dolu`}
                     </span>
                   )}
                 </div>

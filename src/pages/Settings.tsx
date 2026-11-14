@@ -3,12 +3,13 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { ArrowDown, ArrowUp, Check, Download, Plus, Trash2, Upload, X } from 'lucide-react'
 import { db } from '../db/db'
 import { ACCENTS } from '../db/defaults'
-import { updateSettings } from '../db/actions'
+import { ordersWithWorkOn, replanOrders, setDayCapacity, updateSettings } from '../db/actions'
 import { downloadBlob, exportBackup, importBackup, wipeAll } from '../db/backup'
 import { loadDemoData } from '../db/seed'
-import type { OptionLists, ProductType, Settings } from '../db/types'
+import type { OptionLists, ProductType, Settings, TaskTemplate } from '../db/types'
 import { useSettings } from '../lib/hooks'
-import { WEEKDAYS, today, uid } from '../lib/format'
+import { WEEKDAYS, fmtDate, shiftDay, today, uid } from '../lib/format'
+import { fmtMin, stepMinutes } from '../lib/schedule'
 import { Button, Card, CardHeader, Field, IconButton, Input, NumberInput, PageHeader, Select, Toggle, cx, useToast } from '../components/ui'
 import { ask, tell } from '../components/confirm'
 
@@ -60,8 +61,20 @@ export default function SettingsPage() {
     )
 
   const save = async () => {
+    const capChanged = JSON.stringify(draft.weekdayCapacity) !== JSON.stringify(settings.weekdayCapacity)
     await updateSettings(draft)
     toast('Ayarlar kaydedildi')
+    if (capChanged) {
+      const ok = await ask('Günlük kapasiteler değişti. Açık siparişlerin işleri yeni kapasitelere göre yeniden yerleştirilsin mi? (Elle taşıdığınız adımlar yerinde kalır.)', {
+        confirmLabel: 'Yeniden yerleştir',
+        danger: false,
+      })
+      if (ok) {
+        const r = await replanOrders(null)
+        if (r.late.length) await tell(`${r.late.length} sipariş teslim tarihine kapasiteye sığmıyor. Üretim planı ekranında kırmızı görünürler.`)
+        else toast('İşler yeniden yerleştirildi')
+      }
+    }
   }
 
   return (
@@ -106,10 +119,11 @@ export default function SettingsPage() {
         </Card>
 
         <Card className="p-4">
-          <h2 className="font-display text-lg">Günlük kapasite</h2>
+          <h2 className="font-display text-lg">Günlük kapasite (çalışma saati)</h2>
           <p className="mb-3 text-sm text-muted">
-            Her gün en fazla kaç “pasta eşdeğeri” teslim edebileceğiniz. Ürünlerin kapasite ağırlığı aşağıdan ayarlanır (pasta = 1,
-            cupcake = 0,5 gibi). Belirli bir günü Takvim’den ayrıca değiştirebilirsiniz; 0 = kapalı.
+            Haftanın her günü üretime ayırabildiğiniz saat. İş adımları bu saatlere göre günlere yayılır; 0 saat olan günler kapalıdır
+            ve plana iş konmaz. Tek tek günleri Takvim’den, tatil ve izin aralıklarını aşağıdaki “Kapalı günler” bölümünden
+            değiştirebilirsiniz.
           </p>
           <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
             {WEEKDAYS.map((d, i) => (
@@ -149,10 +163,9 @@ export default function SettingsPage() {
                     label: 'Yeni ürün',
                     unit: 'adet',
                     unitPrice: 0,
-                    capacityWeight: 0.5,
                     color: PALETTE[draft.productTypes.length % PALETTE.length],
                     hasTiers: false,
-                    tasks: [{ name: 'Hazırlık', offset: 0, days: 1 }],
+                    tasks: [{ name: 'Hazırlık', offset: 0, fixedMin: 60, perUnitMin: 0 }],
                   },
                 ])
                 setOpenType(key)
@@ -163,8 +176,9 @@ export default function SettingsPage() {
           }
         />
         <p className="-mt-1 px-4 pb-3 text-sm text-muted">
-          İş adımları, yeni sipariş oluşturulunca teslim tarihinden geriye doğru otomatik planlanır. “Kaç gün önce” 0 ise teslim günü
-          yapılır.
+          Her ürünün iş adımları sırayla yapılır. Süre = sabit dakika + kişi/adet başına dakika. Planlayıcı adımları teslimden geriye
+          doğru, “en geç kaç gün önce bitsin” sınırına ve günlük kapasiteye göre yerleştirir; bir adım bir güne sığmazsa önceki günlere
+          bölünür. 0 gün = teslim günü yapılabilir.
         </p>
         <div className="divide-y divide-line border-t border-line">
           {draft.productTypes.map((p) => (
@@ -177,7 +191,7 @@ export default function SettingsPage() {
                 <span className="h-3.5 w-3.5 rounded-full" style={{ background: p.color }} />
                 <span className="flex-1 font-medium">{p.label}</span>
                 <span className="text-sm text-muted tabular-nums">
-                  {p.unitPrice} ₺/{p.unit} · ağırlık {p.capacityWeight} · {p.tasks.length} adım
+                  {p.unitPrice} ₺/{p.unit} · {p.tasks.length} adım
                 </span>
               </button>
               {openType === p.key && (
@@ -194,9 +208,6 @@ export default function SettingsPage() {
                     </Field>
                     <Field label={`Baz fiyat (₺/${p.unit})`}>
                       <NumberInput value={p.unitPrice} onChange={(v) => setType(p.key, { unitPrice: v ?? 0 })} />
-                    </Field>
-                    <Field label="Kapasite ağırlığı">
-                      <NumberInput value={p.capacityWeight} step={0.1} onChange={(v) => setType(p.key, { capacityWeight: v ?? 0 })} />
                     </Field>
                   </div>
                   <div className="flex flex-wrap items-center gap-4">
@@ -216,7 +227,10 @@ export default function SettingsPage() {
                   </div>
 
                   <div>
-                    <div className="mb-2 text-[13px] font-medium text-muted">İş adımları</div>
+                    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="text-[13px] font-medium text-muted">İş adımları (sırayla)</span>
+                      <StepTotal tasks={p.tasks} unit={p.unit} />
+                    </div>
                     <div className="space-y-2">
                       {p.tasks.map((t, i) => (
                         <div key={i} className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-white p-2">
@@ -233,16 +247,27 @@ export default function SettingsPage() {
                               min={0}
                               onChange={(v) => setType(p.key, { tasks: p.tasks.map((x, j) => (j === i ? { ...x, offset: v ?? 0 } : x)) })}
                             />
-                            gün önce
+                            gün önce bitsin
                           </label>
                           <label className="flex items-center gap-1 text-sm text-muted">
                             <NumberInput
                               className="h-10 w-16 text-center"
-                              value={t.days}
-                              min={1}
-                              onChange={(v) => setType(p.key, { tasks: p.tasks.map((x, j) => (j === i ? { ...x, days: Math.max(1, v ?? 1) } : x)) })}
+                              value={t.fixedMin}
+                              min={0}
+                              step={5}
+                              onChange={(v) => setType(p.key, { tasks: p.tasks.map((x, j) => (j === i ? { ...x, fixedMin: Math.max(0, v ?? 0) } : x)) })}
                             />
-                            gün sürer
+                            dk +
+                          </label>
+                          <label className="flex items-center gap-1 text-sm text-muted">
+                            <NumberInput
+                              className="h-10 w-16 text-center"
+                              value={t.perUnitMin}
+                              min={0}
+                              step={0.5}
+                              onChange={(v) => setType(p.key, { tasks: p.tasks.map((x, j) => (j === i ? { ...x, perUnitMin: Math.max(0, v ?? 0) } : x)) })}
+                            />
+                            dk / {p.unit}
                           </label>
                           <div className="flex">
                             <IconButton
@@ -278,7 +303,7 @@ export default function SettingsPage() {
                       <Button
                         size="sm"
                         icon={<Plus size={15} />}
-                        onClick={() => setType(p.key, { tasks: [...p.tasks, { name: '', offset: 0, days: 1 }] })}
+                        onClick={() => setType(p.key, { tasks: [...p.tasks, { name: '', offset: 0, fixedMin: 30, perUnitMin: 0 }] })}
                       >
                         Adım ekle
                       </Button>
@@ -304,6 +329,8 @@ export default function SettingsPage() {
           ))}
         </div>
       </Card>
+
+      <ClosuresCard settings={settings} />
 
       <DataCard />
 
@@ -383,6 +410,115 @@ function ListEditor({ label, values, onChange }: { label: string; values: string
         </Button>
       </div>
     </div>
+  )
+}
+
+function StepTotal({ tasks, unit }: { tasks: TaskTemplate[]; unit: string }) {
+  const sample = unit === 'kişi' ? 20 : 24
+  const total = tasks.reduce((a, t) => a + stepMinutes(t, sample), 0)
+  return (
+    <span className="text-xs text-muted">
+      Örnek: {sample} {unit} için toplam <b className="text-ink">{fmtMin(total)}</b>
+    </span>
+  )
+}
+
+/** Tatil / izin gibi kapalı gün aralıkları ve güne özel kapasiteler */
+function ClosuresCard({ settings }: { settings: Settings }) {
+  const toast = useToast()
+  const t = today()
+  const [from, setFrom] = useState(t)
+  const [to, setTo] = useState(t)
+  const [hours, setHours] = useState<number | undefined>(0)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const list = Object.entries(settings.capacityOverrides)
+    .filter(([d]) => d >= t)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+
+  const range = (a: string, b: string) => {
+    const out: string[] = []
+    const [s, e] = a <= b ? [a, b] : [b, a]
+    for (let d = s; d <= e && out.length < 370; d = shiftDay(d, 1)) out.push(d)
+    return out
+  }
+
+  const offerReplan = async (dates: string[]) => {
+    const ids = await ordersWithWorkOn(dates)
+    if (!ids.length) return
+    const ok = await ask(`Bu günlerde işi planlı ${ids.length} sipariş var. İşleri yeni kapasiteye göre yeniden yerleştirilsin mi?`, {
+      confirmLabel: 'Yeniden yerleştir',
+      danger: false,
+    })
+    if (!ok) return
+    const r = await replanOrders(ids, { includeManual: true })
+    if (r.late.length) await tell(`${r.late.length} sipariş teslim tarihine kapasiteye sığmıyor. Üretim planı ekranında kırmızı görünürler; teslim tarihini ileri alabilirsiniz.`)
+    else toast('İşler yeniden yerleştirildi')
+  }
+
+  const add = async () => {
+    if (hours === undefined) return
+    setBusy(true)
+    try {
+      const dates = range(from, to)
+      await setDayCapacity(dates, hours, note)
+      toast(hours === 0 ? `${dates.length} gün kapatıldı` : `${dates.length} günün kapasitesi ${hours} saat oldu`)
+      setNote('')
+      await offerReplan(dates)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card className="mt-4 p-4">
+      <h2 className="font-display text-lg">Kapalı günler ve özel kapasiteler</h2>
+      <p className="mt-1 mb-3 text-sm text-muted">
+        Tatil, bayram, izin ya da yoğun bir fuar günü gibi tarihler için kapasiteyi sıfırlayın veya değiştirin. Bu günlere iş
+        yerleştirilmez; işler önceki açık günlere, sığmazsa ileri tarihlere kayar.
+      </p>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-[1fr_1fr_110px_1.4fr_auto]">
+        <Field label="Başlangıç">
+          <Input type="date" value={from} onChange={(e) => e.target.value && setFrom(e.target.value)} />
+        </Field>
+        <Field label="Bitiş">
+          <Input type="date" value={to} onChange={(e) => e.target.value && setTo(e.target.value)} />
+        </Field>
+        <Field label="Kapasite (sa)">
+          <NumberInput value={hours} onChange={setHours} min={0} step={0.5} />
+        </Field>
+        <Field label="Not">
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Örn. Bayram tatili" />
+        </Field>
+        <div className="col-span-2 flex items-end md:col-span-1">
+          <Button variant="primary" className="w-full" disabled={busy || hours === undefined} onClick={add}>
+            {hours === 0 ? 'Kapat' : 'Uygula'}
+          </Button>
+        </div>
+      </div>
+      {list.length > 0 && (
+        <div className="mt-4 divide-y divide-line rounded-xl border border-line">
+          {list.map(([d, h]) => (
+            <div key={d} className="flex items-center gap-3 px-3 py-2 text-sm">
+              <span className="min-w-0 flex-1">
+                {fmtDate(d, 'd MMMM yyyy, EEEE')}
+                {settings.dayNotes?.[d] && <span className="text-muted"> · {settings.dayNotes[d]}</span>}
+              </span>
+              <span className={cx('tabular-nums', h === 0 ? 'text-stone-500' : 'text-ink')}>{h === 0 ? 'Kapalı' : `${h} sa`}</span>
+              <IconButton
+                label="Kaldır"
+                onClick={async () => {
+                  await setDayCapacity([d], undefined, '')
+                  toast('Varsayılan kapasiteye dönüldü')
+                }}
+              >
+                <X size={16} />
+              </IconButton>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 

@@ -7,7 +7,8 @@ import type { ImageKind, OrderStatus, PriceExtra } from '../db/types'
 import { STATUS, STATUS_ORDER, calcTotal, productTypeOf } from '../lib/domain'
 import { money, parseDay, today, uid } from '../lib/format'
 import { useSettings } from '../lib/hooks'
-import { CapacityHint, CustomerPicker, IMAGE_KINDS } from '../components/shared'
+import { CustomerPicker, IMAGE_KINDS } from '../components/shared'
+import { PlanHint } from '../components/PlanHint'
 import {
   Button,
   Card,
@@ -368,11 +369,13 @@ export default function OrderForm() {
                 <Input type="time" value={form.deliveryTime ?? ''} onChange={(e) => set('deliveryTime', e.target.value)} />
               </Field>
             </div>
-            {form.deliveryDate && (
-              <CapacityHint
-                date={form.deliveryDate}
-                excludeId={id}
-                extraWeight={form.status === 'teklif' || form.status === 'iptal' ? 0 : pt.capacityWeight}
+            {form.status !== 'iptal' && (
+              <PlanHint
+                productType={form.productType}
+                amount={form.amount}
+                deliveryDate={form.deliveryDate}
+                excludeOrderId={id}
+                onPickDate={(d) => set('deliveryDate', d)}
               />
             )}
             <div className="mt-3">

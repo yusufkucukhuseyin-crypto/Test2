@@ -5,8 +5,8 @@ import { Check, Clock, MapPin, Plus, Search, Store, Trash2, UserPlus } from 'luc
 import { db } from '../db/db'
 import type { Customer, Order, OrderImage, OrderStatus, Settings, SpecialDay } from '../db/types'
 import { saveCustomer, type CustomerInput } from '../db/actions'
-import { STATUS, dayLoad, loadTone, orderSummary, productTypeOf, TONE_STYLE } from '../lib/domain'
-import { fmtDateShort, matches, money, MONTHS, num, uid } from '../lib/format'
+import { STATUS, orderSummary, productTypeOf } from '../lib/domain'
+import { fmtDateShort, matches, money, MONTHS, uid } from '../lib/format'
 import { useBlobUrl, useSettings } from '../lib/hooks'
 import { Avatar, Badge, Button, ComboInput, Field, IconButton, Input, Modal, NumberInput, Select, Textarea, cx, useToast } from './ui'
 
@@ -79,30 +79,6 @@ export function OrderRow({
         )}
       </div>
     </Link>
-  )
-}
-
-/* ---------------- Kapasite göstergesi ---------------- */
-
-export function CapacityHint({ date, excludeId, extraWeight = 0 }: { date: string; excludeId?: string; extraWeight?: number }) {
-  const settings = useSettings()
-  const orders = useLiveQuery(() => db.orders.where('deliveryDate').equals(date).toArray(), [date])
-  if (!settings || !orders || !date) return null
-  const l = dayLoad(settings, orders, date, excludeId)
-  const after = { ...l, load: l.load + extraWeight, ratio: l.capacity ? (l.load + extraWeight) / l.capacity : Infinity }
-  const tone = loadTone(after)
-  const st = TONE_STYLE[tone]
-  return (
-    <div className={cx('mt-1.5 flex items-center gap-2 text-xs', st.text)}>
-      <span className="h-1.5 w-16 overflow-hidden rounded-full bg-stone-200">
-        <span className={cx('block h-full', st.bar)} style={{ width: `${Math.min(100, (after.ratio || 0) * 100)}%` }} />
-      </span>
-      {l.capacity === 0
-        ? 'Bu gün kapalı (kapasite 0)'
-        : `Bu gün: ${num(l.load)} / ${num(l.capacity)} dolu${l.tentative ? ` · +${num(l.tentative)} teklif` : ''}${
-            after.ratio > 1 ? ' — kapasite aşılıyor!' : ''
-          }`}
-    </div>
   )
 }
 

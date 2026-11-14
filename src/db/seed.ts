@@ -3,7 +3,7 @@ import { ensureSettings, replanOrders } from './actions'
 import type { Customer, Order, OrderImage, Payment, StockItem, StockMove, Task } from './types'
 import { shiftDay, today, uid } from '../lib/format'
 import { calcTotal, productTypeOf } from '../lib/domain'
-import { nextOpenDay, templateTasks } from '../lib/schedule'
+import { nextOpenDay, templateTasks, withAlloc } from '../lib/schedule'
 
 /** Örnek görsel: basit bir pasta çizimi */
 async function drawCake(color: string, tiers: number, bg: string): Promise<{ blob: Blob; thumb: Blob }> {
@@ -211,7 +211,12 @@ export async function loadDemoData() {
     if (s.paid) {
       payments.push({ id: uid(), orderId: o.id, kind: 'odeme', amount: agreed - dep, method: 'Nakit', date: deliveryDate, createdAt: now })
     }
-    tasks.push(...templateTasks(o, pt))
+    // Yakın tarihli örnek siparişlerde ideal günü geçmiş adımlar zaten yapılmış sayılır
+    for (const x of templateTasks(o, pt)) {
+      const ideal = shiftDay(deliveryDate, -x.offset)
+      if (s.d > 0 && ideal < t) tasks.push(withAlloc({ ...x, done: true }, { [ideal]: x.minutes }))
+      else tasks.push(x)
+    }
     if (s.img) {
       const pic = await drawCake(pt.color, s.img[1], s.img[0])
       images.push({

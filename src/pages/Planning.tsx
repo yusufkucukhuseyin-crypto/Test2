@@ -119,7 +119,7 @@ export default function Planning() {
 
   const replanAll = async () => {
     const ok = await ask(
-      'Bugünden sonra teslim edilecek tüm açık siparişlerin bitmemiş işleri, günlük kapasitelere göre teslim tarihlerinden geriye doğru yeniden yerleştirilecek. Kapalı günler atlanır.\n\nElle taşıdığınız adımlar yerinde kalır.',
+      'Bugünden sonra teslim edilecek tüm açık siparişlerin bitmemiş işleri, günlük kapasitelere göre teslim tarihlerinden geriye doğru yeniden yerleştirilecek. Kapalı günler atlanır.\n\nÖncelik: kesinleşmiş siparişler, en yakın teslim tarihli olandan başlayarak; teklif aşamasındakiler kalan kapasiteye yerleşir. Elle taşıdığınız adımlar yerinde kalır.',
       { confirmLabel: 'Yeniden planla', danger: false },
     )
     if (!ok) return

@@ -260,7 +260,8 @@ export interface ReplanResult {
  * Siparişlerin bitmemiş adımlarını kapasiteye göre yeniden yerleştirir.
  * ids verilmezse bugün ve sonrasında teslim edilecek tüm açık siparişler.
  * Elle taşınmış adımlar (manual) includeManual verilmedikçe yerinde kalır.
- * Teslim tarihi en geç olandan başlanır: yakın tarihli siparişler için bugüne yakın kapasite korunur.
+ * Sıra: önce kesinleşmiş siparişler (teklifler en son), kendi içinde en yakın teslim tarihli olan önce.
+ * Her sipariş kendi teslim tarihinden geriye doğru yerleşir; böylece acil siparişler kapasiteyi önce alır.
  */
 export async function replanOrders(
   ids: string[] | null,
@@ -275,7 +276,13 @@ export async function replanOrders(
       .filter((o) =>
         ids ? ids.includes(o.id) && o.status !== 'iptal' : o.status !== 'iptal' && o.status !== 'teslim' && o.deliveryDate >= t,
       )
-      .sort((a, b) => b.deliveryDate.localeCompare(a.deliveryDate) || b.no - a.no)
+      // Öncelik: kesinleşmiş siparişler tekliflerden önce; sonra en yakın teslim tarihi (EDD)
+      .sort(
+        (a, b) =>
+          Number(a.status === 'teklif') - Number(b.status === 'teklif') ||
+          a.deliveryDate.localeCompare(b.deliveryDate) ||
+          a.no - b.no,
+      )
     const targetIds = new Set(targets.map((o) => o.id))
     const movable = (x: Task) => targetIds.has(x.orderId) && !x.done && (opts.includeManual || !x.manual)
     let load = buildLoad(tasks.filter((x) => !movable(x) && !cancelled.has(x.orderId)))

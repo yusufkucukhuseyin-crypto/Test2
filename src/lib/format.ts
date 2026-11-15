@@ -93,6 +93,14 @@ export function waLink(phone: string): string {
   return `https://wa.me/${digits}`
 }
 
+/** Müşterinin kısa iletişim bilgisi: telefon, yoksa WhatsApp kullanıcı adı, yoksa Instagram */
+export function contactText(c: { phone?: string; whatsapp?: string; instagram?: string }): string {
+  if (c.phone?.trim()) return c.phone
+  if (c.whatsapp?.trim()) return `WhatsApp: ${c.whatsapp.replace(/^@/, '')}`
+  if (c.instagram?.trim()) return `Instagram: @${c.instagram.replace(/^@/, '')}`
+  return ''
+}
+
 export function telLink(phone: string): string {
   return `tel:${phone.replace(/[^\d+]/g, '')}`
 }

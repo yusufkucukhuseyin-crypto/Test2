@@ -1,85 +1,41 @@
 import type { ProductType, Settings } from './types'
 
+/** Fiyat listesinin başlangıç hâli (kullanıcı Fiyat Listesi sayfasından düzenler) */
 export const DEFAULT_PRODUCT_TYPES: ProductType[] = [
-  {
-    key: 'pasta',
-    label: 'Pasta',
-    unit: 'kişi',
-    unitPrice: 350,
-    color: '#d48a96',
-    hasTiers: true,
-    tasks: [
-      { name: 'Malzeme kontrolü', offset: 3, fixedMin: 30, perUnitMin: 0 },
-      { name: 'Kek pişirme', offset: 2, fixedMin: 60, perUnitMin: 2 },
-      { name: 'Dolgu ve krema', offset: 1, fixedMin: 45, perUnitMin: 1.5 },
-      { name: 'Kaplama', offset: 1, fixedMin: 45, perUnitMin: 1.5 },
-      { name: 'Süsleme ve paketleme', offset: 0, fixedMin: 60, perUnitMin: 2 },
-    ],
-  },
-  {
-    key: 'cupcake',
-    label: 'Cupcake',
-    unit: 'adet',
-    unitPrice: 90,
-    color: '#c79a5b',
-    hasTiers: false,
-    tasks: [
-      { name: 'Pişirme', offset: 1, fixedMin: 45, perUnitMin: 1 },
-      { name: 'Krema ve süsleme', offset: 0, fixedMin: 20, perUnitMin: 2 },
-    ],
-  },
-  {
-    key: 'kurabiye',
-    label: 'Butik kurabiye',
-    unit: 'adet',
-    unitPrice: 80,
-    color: '#8fae8b',
-    hasTiers: false,
-    tasks: [
-      { name: 'Hamur ve pişirme', offset: 3, fixedMin: 60, perUnitMin: 0.5 },
-      { name: 'Royal icing süsleme', offset: 1, fixedMin: 0, perUnitMin: 4 },
-      { name: 'Paketleme', offset: 0, fixedMin: 15, perUnitMin: 0.5 },
-    ],
-  },
-  {
-    key: 'diger',
-    label: 'Diğer',
-    unit: 'adet',
-    unitPrice: 0,
-    color: '#8a9bb0',
-    hasTiers: false,
-    tasks: [{ name: 'Hazırlık', offset: 0, fixedMin: 60, perUnitMin: 0 }],
-  },
+  { key: 'pasta', label: 'Pasta', desc: '', unit: 'kişi', unitPrice: 350, color: '#d48a96', hasTiers: true },
+  { key: 'cupcake', label: 'Cupcake', desc: '', unit: 'adet', unitPrice: 90, color: '#c79a5b', hasTiers: false },
+  { key: 'kurabiye', label: 'Butik kurabiye', desc: '', unit: 'adet', unitPrice: 80, color: '#8fae8b', hasTiers: false },
+  { key: 'diger', label: 'Diğer', desc: '', unit: 'adet', unitPrice: 0, color: '#8a9bb0', hasTiers: false },
 ]
 
+export const CAKE_TYPES = ['Vanilya', 'Kakao']
+export const CREAM_TYPES = ['Vanilyalı', 'Çikolatalı']
+export const FILLINGS = ['Çilek', 'Muz', 'Frambuaz', 'Orman Meyveli', 'Çikolata Sos', 'Antep Fıstığı', 'Damla Çikolata', 'Lotus']
+
+/** Varsayılan günlük kapasite: aynı gün teslim edilebilecek sipariş sayısı */
+export const DEFAULT_DAILY_CAPACITY = 2
+
 /** Ayar verisi sürümü. Artırınca ensureSettings içine geçişini ekleyin. */
-export const SETTINGS_REV = 2
+export const SETTINGS_REV = 3
 
 export function defaultSettings(): Settings {
   return {
     id: 'main',
     businessName: 'Luma Cakes',
-    // Pazartesi..Pazar çalışma saati; Pazar kapalı
-    weekdayCapacity: [8, 8, 8, 8, 8, 8, 0],
+    // Pazartesi..Pazar: her gün aynı gün en fazla 2 sipariş
+    weekdayCapacity: Array(7).fill(DEFAULT_DAILY_CAPACITY),
     capacityOverrides: {},
     dayNotes: {},
-    capacityUnit: 'saat',
+    capacityUnit: 'siparis',
     rev: SETTINGS_REV,
     productTypes: DEFAULT_PRODUCT_TYPES,
     reminderDays: 21,
     nextOrderNo: 1,
     accent: 'gul',
     options: {
-      cakeTypes: ['Vanilyalı', 'Kakaolu', 'Red velvet', 'Havuçlu', 'Limonlu', 'Frambuazlı', 'Muzlu'],
-      creamTypes: [
-        'Mascarpone krema',
-        'Çikolatalı ganaj',
-        'Beyaz çikolatalı ganaj',
-        'Krem şanti',
-        'Swiss meringue buttercream',
-        'Cream cheese',
-      ],
-      fillings: ['Çilek', 'Muz', 'Frambuaz', 'Orman meyveli', 'Karamel', 'Fındık pralin', 'Antep fıstığı', 'Bisküvi'],
+      cakeTypes: CAKE_TYPES,
+      creamTypes: CREAM_TYPES,
+      fillings: FILLINGS,
       themes: ['Minimal', 'Çiçekli', 'Karakter', 'Vintage', 'Lambeth', 'Pastel'],
       occasions: [
         'Doğum günü',
@@ -104,7 +60,6 @@ export function defaultSettings(): Settings {
         'Özel topper',
         'Özel iç malzeme',
         'Kutu / paketleme',
-        'Teslimat ücreti',
       ],
       stockUnits: ['kg', 'g', 'lt', 'ml', 'adet', 'paket', 'kutu'],
       stockCategories: ['Un ve şeker', 'Süt ürünleri', 'Çikolata', 'Meyve', 'Süsleme', 'Ambalaj', 'Diğer'],

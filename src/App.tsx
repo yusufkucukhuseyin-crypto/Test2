@@ -1,4 +1,4 @@
-import { HashRouter, MemoryRouter, Route, Routes } from 'react-router-dom'
+import { HashRouter, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { ConfirmHost } from './components/confirm'
 import Layout from './components/Layout'
 import { ToastProvider } from './components/ui'
@@ -9,7 +9,8 @@ import OrderDetail from './pages/OrderDetail'
 import Customers from './pages/Customers'
 import CustomerDetail from './pages/CustomerDetail'
 import CalendarPage from './pages/Calendar'
-import Planning from './pages/Planning'
+import PriceList from './pages/PriceList'
+import PrintOrder from './pages/PrintOrder'
 import Catalog from './pages/Catalog'
 import Stock from './pages/Stock'
 import Reports from './pages/Reports'
@@ -18,22 +19,29 @@ import SettingsPage from './pages/Settings'
 // Gömülü önizleme sürümünde adres çubuğu kullanılmaz
 const Router = import.meta.env.VITE_EMBED ? MemoryRouter : HashRouter
 
+/** Adres (ör. ?tarih=, ?kaynak=) değişince sipariş formu sıfırdan açılsın */
+function OrderFormPage() {
+  const loc = useLocation()
+  return <OrderForm key={loc.pathname + loc.search} />
+}
+
 export default function App() {
   return (
     <ToastProvider>
       <ConfirmHost />
       <Router>
         <Routes>
+          <Route path="siparisler/:id/yazdir" element={<PrintOrder />} />
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="siparisler" element={<Orders />} />
-            <Route path="siparisler/yeni" element={<OrderForm />} />
+            <Route path="siparisler/yeni" element={<OrderFormPage />} />
             <Route path="siparisler/:id" element={<OrderDetail />} />
-            <Route path="siparisler/:id/duzenle" element={<OrderForm />} />
+            <Route path="siparisler/:id/duzenle" element={<OrderFormPage />} />
             <Route path="musteriler" element={<Customers />} />
             <Route path="musteriler/:id" element={<CustomerDetail />} />
             <Route path="takvim" element={<CalendarPage />} />
-            <Route path="planlama" element={<Planning />} />
+            <Route path="fiyat-listesi" element={<PriceList />} />
             <Route path="katalog" element={<Catalog />} />
             <Route path="stok" element={<Stock />} />
             <Route path="raporlar" element={<Reports />} />

@@ -3,9 +3,9 @@ import { useSearchParams } from 'react-router-dom'
 import { ClipboardList, Plus, Search } from 'lucide-react'
 import { endOfWeek, startOfWeek } from 'date-fns'
 import { STATUS, STATUS_ORDER, isOpen } from '../lib/domain'
-import { TONE, dayUsage, fmtHours, usageTone } from '../lib/schedule'
+import { TONE, countByDay, dayStatus, fmtCount } from '../lib/capacity'
 import { fmtDate, isoDate, matches, relDay, today } from '../lib/format'
-import { useCoreData, usePlanData, sortByDelivery } from '../lib/data'
+import { useCoreData, sortByDelivery } from '../lib/data'
 import { useSettings } from '../lib/hooks'
 import { OrderRow } from '../components/shared'
 import { Card, EmptyState, LinkButton, PageHeader, Segmented, Select, cx } from '../components/ui'
@@ -16,7 +16,6 @@ type Range = 'acik' | 'bugun' | 'hafta' | 'tum' | 'gecmis'
 export default function Orders() {
   const settings = useSettings()
   const data = useCoreData()
-  const plan = usePlanData()
   const [params, setParams] = useSearchParams()
   const [q, setQ] = useState('')
   const range = (params.get('g') as Range) ?? 'acik'
@@ -31,7 +30,7 @@ export default function Orders() {
     const we = isoDate(endOfWeek(new Date(), { weekStartsOn: 1 }))
     const list = data.orders.filter((o) => {
       const c = data.customerById.get(o.customerId)
-      if (!matches([c?.name, c?.phone, String(o.no), o.theme, o.occasion, o.cakeText, o.designNotes], q)) return false
+      if (!matches([c?.name, c?.phone, c?.whatsapp, String(o.no), o.occasion, o.cakeText, o.cardText, o.designNotes, o.filling], q)) return false
       if (status && o.status !== status) return false
       if (type && o.productType !== type) return false
       if (unpaid && (o.status === 'iptal' || o.agreedPrice - (data.paidByOrder.get(o.id) ?? 0) <= 0)) return false
@@ -65,6 +64,7 @@ export default function Orders() {
 
   if (!settings || !data) return null
   const t = today()
+  const counts = countByDay(data.orders)
 
   return (
     <div>
@@ -147,8 +147,8 @@ export default function Orders() {
       ) : (
         <div className="space-y-4">
           {groups.map(([date, orders]) => {
-            const u = plan ? dayUsage(settings, plan.load, date) : null
-            const tone = u ? TONE[usageTone(u)] : null
+            const st = dayStatus(settings, counts, date)
+            const tone = TONE[st.tone]
             return (
               <div key={date}>
                 <div className="mb-1.5 flex items-baseline justify-between px-1">
@@ -156,9 +156,9 @@ export default function Orders() {
                     {fmtDate(date, 'd MMMM EEEE')}
                     <span className="ml-2 font-normal text-muted">{relDay(date)}</span>
                   </div>
-                  {date >= t && u && tone && (
-                    <span className={cx('text-xs', tone.text)} title="O günün üretim doluluğu">
-                      {u.closed ? 'Kapalı gün' : `${fmtHours(u.used)}/${fmtHours(u.cap)} sa dolu`}
+                  {date >= t && (
+                    <span className={cx('text-xs font-medium', tone.text)} title="O günün doluluğu">
+                      {st.closed ? 'Kapalı gün' : `${tone.label} · ${fmtCount(st)}`}
                     </span>
                   )}
                 </div>

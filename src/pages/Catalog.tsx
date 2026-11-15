@@ -141,7 +141,7 @@ export default function Catalog() {
               <div key={img.id}>
                 <Thumb image={img} onClick={() => setViewer(img)} className="w-full" />
                 <div className="mt-1.5 px-0.5">
-                  <div className="truncate text-sm font-medium">{img.caption || o?.theme || pt.label}</div>
+                  <div className="truncate text-sm font-medium">{img.caption || o?.occasion || pt.label}</div>
                   <div className="flex items-center gap-1.5 truncate text-xs text-muted">
                     <span className="h-2 w-2 rounded-full" style={{ background: pt.color }} />
                     {pt.label}

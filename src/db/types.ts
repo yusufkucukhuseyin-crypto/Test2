@@ -1,14 +1,7 @@
 export type ID = string
 
-/** Sipariş aşamaları */
-export type OrderStatus =
-  | 'teklif'
-  | 'onaylandi'
-  | 'kapora'
-  | 'hazirlaniyor'
-  | 'hazir'
-  | 'teslim'
-  | 'iptal'
+/** Sipariş durumu */
+export type OrderStatus = 'onaylandi' | 'teslim' | 'iptal'
 
 export interface SpecialDay {
   id: ID
@@ -25,7 +18,10 @@ export interface SpecialDay {
 export interface Customer {
   id: ID
   name: string
+  /** Telefon (bilinmiyorsa boş) */
   phone: string
+  /** WhatsApp kullanıcı adı (numara bilinmediğinde) */
+  whatsapp?: string
   instagram?: string
   address?: string
   source?: string
@@ -55,18 +51,28 @@ export interface Order {
   tiers?: number
   cakeType?: string
   creamType?: string
+  /** Virgülle ayrılmış birden çok iç dolgu */
   filling?: string
+  /** @deprecated artık formda yok; eski kayıtlarda kalabilir */
   theme?: string
   cakeText?: string
+  /** Tebrik kartı yazısı */
+  cardText?: string
   designNotes?: string
+  /** @deprecated artık kullanılmıyor */
   designApproved?: boolean
   notes?: string
   deliveryDate: string // yyyy-MM-dd
   deliveryTime?: string // HH:mm
   deliveryMethod: 'gelal' | 'adres'
   deliveryAddress?: string
+  /** Sipariş anındaki dilim (kişi) / adet fiyatı — fiyat listesinden gelir */
   unitPrice?: number
   extras: PriceExtra[]
+  /** Adrese teslim ücreti */
+  deliveryFee?: number
+  /** İndirim (₺) */
+  discount?: number
   /** Hesaplanan toplam tutar */
   calculatedTotal: number
   /** Müşteriyle anlaşılan tutar */
@@ -167,17 +173,22 @@ export interface TaskTemplate {
   perUnitMin: number
 }
 
+/** Fiyat listesindeki bir ürün / pasta türü */
 export interface ProductType {
   key: string
   label: string
-  /** Fiyatlandırma birimi */
+  /** İçerik / açıklama */
+  desc?: string
+  /** Fiyatlandırma birimi: kişi (dilim) ya da adet */
   unit: 'kişi' | 'adet'
+  /** Dilim (kişi) ya da adet fiyatı */
   unitPrice: number
-  /** @deprecated eski sürümden kalma (teslim adedi bazlı kapasite) */
+  /** @deprecated eski sürümden kalma */
   capacityWeight?: number
   color: string
   hasTiers: boolean
-  tasks: TaskTemplate[]
+  /** @deprecated üretim planı kaldırıldı */
+  tasks?: TaskTemplate[]
 }
 
 export interface OptionLists {
@@ -197,19 +208,24 @@ export interface OptionLists {
 export interface Settings {
   id: 'main'
   businessName: string
-  /** Pazartesi..Pazar günlük çalışma kapasitesi (saat) */
+  /** Pazartesi..Pazar günlük kapasite (aynı gün teslim edilebilecek sipariş sayısı) */
   weekdayCapacity: number[]
-  /** Belirli günler için kapasite (yyyy-MM-dd -> saat, 0 = kapalı) */
+  /** Belirli günler için kapasite (yyyy-MM-dd -> sipariş sayısı, 0 = kapalı) */
   capacityOverrides: Record<string, number>
   /** Belirli günler için not (Bayram, izin…) */
   dayNotes: Record<string, string>
-  /** Kapasite birimi; eski sürümden geçişi anlamak için */
-  capacityUnit?: 'saat'
+  /** Kapasite birimi; eski sürümlerden geçişi anlamak için */
+  capacityUnit?: 'saat' | 'siparis'
   /** Ayar verisi sürümü; tek seferlik geçişler için */
   rev?: number
   productTypes: ProductType[]
   options: OptionLists
   reminderDays: number
   nextOrderNo: number
+  /** Renk teması anahtarı; 'ozel' ise accentColor kullanılır */
   accent: string
+  /** Özel tema rengi (#rrggbb), logodan çıkarılır ya da elle seçilir */
+  accentColor?: string
+  /** Firma logosu (data URL) */
+  logo?: string
 }

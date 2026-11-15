@@ -1,9 +1,8 @@
 import { db } from './db'
-import { ensureSettings, replanOrders } from './actions'
-import type { Customer, Order, OrderImage, Payment, StockItem, StockMove, Task } from './types'
+import { ensureSettings } from './actions'
+import type { Customer, Order, OrderImage, Payment, StockItem, StockMove } from './types'
 import { shiftDay, today, uid } from '../lib/format'
 import { calcTotal, productTypeOf } from '../lib/domain'
-import { nextOpenDay, templateTasks, withAlloc } from '../lib/schedule'
 
 /** Örnek görsel: basit bir pasta çizimi */
 async function drawCake(color: string, tiers: number, bg: string): Promise<{ blob: Blob; thumb: Blob }> {
@@ -48,17 +47,8 @@ async function drawCake(color: string, tiers: number, bg: string): Promise<{ blo
 }
 
 export async function loadDemoData() {
-  let settings = await ensureSettings()
+  const settings = await ensureSettings()
   const t = today()
-  // Örnek: 5 gün sonrası kapalı (izin günü) — kapasite planlamanın kapalı günleri atladığını göstermek için
-  const closedDay = shiftDay(t, 5)
-  if (settings.capacityOverrides[closedDay] === undefined) {
-    await db.settings.update('main', {
-      capacityOverrides: { ...settings.capacityOverrides, [closedDay]: 0 },
-      dayNotes: { ...(settings.dayNotes ?? {}), [closedDay]: 'İzin (örnek)' },
-    })
-    settings = await ensureSettings()
-  }
   const now = Date.now()
 
   const mk = (c: Partial<Customer> & { name: string; phone: string }): Customer => ({
@@ -95,7 +85,8 @@ export async function loadDemoData() {
       allergies: 'Fındık alerjisi',
       specialDays: [{ id: uid(), type: 'Doğum günü', person: 'Oğlu Can', ...soon(3), year: 2020 }],
     }),
-    mk({ name: 'Elif Şahin', phone: '0505 222 33 44', instagram: 'elifsahin', source: 'Instagram' }),
+    // Numarası bilinmeyen, WhatsApp kullanıcı adıyla yazan müşteri
+    mk({ name: 'Elif Şahin', phone: '', whatsapp: 'elif.sahin', instagram: 'elifsahin', source: 'Instagram' }),
     mk({ name: 'Burak Çelik', phone: '0212 555 66 77', source: 'Telefon', notes: 'Kurumsal siparişler, fatura istemiyor.' }),
     mk({
       name: 'Selin Arslan',
@@ -116,8 +107,8 @@ export async function loadDemoData() {
     cake?: string
     cream?: string
     fill?: string
-    theme?: string
     text?: string
+    card?: string
     design?: string
     deposit?: number
     paid?: boolean
@@ -137,45 +128,44 @@ export async function loadDemoData() {
     { c: 3, pt: 'pasta', d: -12, amount: 18, status: 'teslim', tiers: 1, occasion: 'Doğum günü', paid: true, img: ['#d9c8ef', 1] },
     { c: 5, pt: 'pasta', d: -4, amount: 12, status: 'teslim', tiers: 1, deposit: 1000 },
     {
-      c: 2, pt: 'pasta', d: 0, amount: 20, status: 'hazir', tiers: 2, occasion: 'Doğum günü',
-      cake: 'Vanilyalı', cream: 'Mascarpone krema', fill: 'Çilek', theme: 'Karakter', text: 'İyi ki doğdun Can',
+      c: 2, pt: 'pasta', d: 0, amount: 20, status: 'onaylandi', tiers: 2, occasion: 'Doğum günü',
+      cake: 'Vanilya', cream: 'Vanilyalı', fill: 'Çilek, Muz', text: 'İyi ki doğdun Can', card: 'Nice mutlu yaşlara Can! Sevgilerle, annen ve baban',
       design: 'Mavi tonlarında, üstünde araba figürü. Fındık kullanılmayacak!', deposit: 2000,
       extras: [['Şeker hamuru figür', 600]],
     },
     {
-      c: 0, pt: 'pasta', d: 1, amount: 15, status: 'hazirlaniyor', tiers: 1, occasion: 'Doğum günü',
-      cake: 'Kakaolu', cream: 'Çikolatalı ganaj', fill: 'Muz', theme: 'Pastel', text: 'Elif 5 yaşında',
+      c: 0, pt: 'pasta', d: 1, amount: 15, status: 'onaylandi', tiers: 1, occasion: 'Doğum günü',
+      cake: 'Kakao', cream: 'Çikolatalı', fill: 'Muz, Damla Çikolata', text: 'Elif 5 yaşında',
       design: 'Pembe-lila pastel, kelebekli. Referans fotoğraf WhatsApp’tan geldi.', deposit: 1500,
     },
-    { c: 4, pt: 'kurabiye', d: 2, amount: 80, status: 'kapora', occasion: 'Kurumsal', design: 'Logolu kurabiye, tek tek paketli.', deposit: 3000 },
+    { c: 4, pt: 'kurabiye', d: 2, amount: 80, status: 'onaylandi', occasion: 'Kurumsal', design: 'Logolu kurabiye, tek tek paketli.', deposit: 3000 },
     {
-      c: 1, pt: 'pasta', d: 3, amount: 30, status: 'kapora', tiers: 2, occasion: 'Yıl dönümü',
-      cake: 'Red velvet', cream: 'Cream cheese', fill: 'Frambuaz', theme: 'Çiçekli', text: '10. yılımız',
+      c: 1, pt: 'pasta', d: 3, amount: 30, status: 'onaylandi', tiers: 2, occasion: 'Yıl dönümü',
+      cake: 'Kakao', cream: 'Vanilyalı', fill: 'Frambuaz', text: '10. yılımız', card: 'Nice yıllara sevgilim',
       design: 'Beyaz zemin, taze çiçek.', deposit: 4000, extras: [['Taze çiçek', 750]],
     },
     { c: 3, pt: 'cupcake', d: 3, amount: 24, status: 'onaylandi', occasion: 'Doğum günü' },
     {
-      c: 5, pt: 'pasta', d: 6, amount: 50, status: 'kapora', tiers: 3, occasion: 'Düğün',
-      cake: 'Vanilyalı', cream: 'Swiss meringue buttercream', fill: 'Orman meyveli, Karamel', theme: 'Minimal',
-      design: 'Üç katlı beyaz, altın varaklı.', deposit: 8000, extras: [['Altın varak', 1200], ['Teslimat ücreti', 500]],
+      c: 5, pt: 'pasta', d: 6, amount: 50, status: 'onaylandi', tiers: 3, occasion: 'Düğün',
+      cake: 'Vanilya', cream: 'Vanilyalı', fill: 'Orman Meyveli, Antep Fıstığı',
+      design: 'Üç katlı beyaz, altın varaklı.', deposit: 8000, extras: [['Altın varak', 1200]],
     },
-    { c: 2, pt: 'kurabiye', d: 6, amount: 20, status: 'teklif', occasion: 'Doğum günü' },
-    { c: 0, pt: 'pasta', d: 10, amount: 20, status: 'teklif', tiers: 2, occasion: 'Baby shower', theme: 'Pastel' },
+    { c: 2, pt: 'kurabiye', d: 6, amount: 20, status: 'onaylandi', occasion: 'Doğum günü' },
+    { c: 0, pt: 'pasta', d: 10, amount: 20, status: 'onaylandi', tiers: 2, occasion: 'Baby shower' },
     { c: 3, pt: 'pasta', d: 13, amount: 25, status: 'onaylandi', tiers: 2, occasion: 'Söz' },
   ]
 
   const orders: Order[] = []
   const payments: Payment[] = []
-  const tasks: Task[] = []
   const images: OrderImage[] = []
   let no = settings.nextOrderNo
   for (const s of specs) {
     const pt = productTypeOf(settings, s.pt)
     const extras = (s.extras ?? []).map(([label, amount]) => ({ id: uid(), label, amount }))
-    const total = calcTotal(pt.unitPrice, s.amount, extras)
+    const deliveryFee = s.d === 6 ? 500 : 0
+    const total = calcTotal({ unitPrice: pt.unitPrice, amount: s.amount, extras, deliveryFee })
     const agreed = Math.round(total / 50) * 50
-    // Kapalı güne denk gelen örnek teslimleri sonraki açık güne al
-    const deliveryDate = s.d > 0 ? nextOpenDay(settings, shiftDay(t, s.d)) : shiftDay(t, s.d)
+    const deliveryDate = shiftDay(t, s.d)
     const o: Order = {
       id: uid(),
       no: no++,
@@ -187,16 +177,16 @@ export async function loadDemoData() {
       cakeType: s.cake,
       creamType: s.cream,
       filling: s.fill,
-      theme: s.theme,
       cakeText: s.text,
+      cardText: s.card,
       designNotes: s.design,
-      designApproved: s.status !== 'teklif' && s.status !== 'onaylandi',
       deliveryDate,
       deliveryTime: s.d % 2 === 0 ? '14:00' : '11:30',
       deliveryMethod: s.d === 6 ? 'adres' : 'gelal',
       deliveryAddress: s.d === 6 ? 'Bağdat Cad. No: 120, Kadıköy' : undefined,
       unitPrice: pt.unitPrice,
       extras,
+      deliveryFee,
       calculatedTotal: total,
       agreedPrice: agreed,
       status: s.status,
@@ -210,12 +200,6 @@ export async function loadDemoData() {
     }
     if (s.paid) {
       payments.push({ id: uid(), orderId: o.id, kind: 'odeme', amount: agreed - dep, method: 'Nakit', date: deliveryDate, createdAt: now })
-    }
-    // Yakın tarihli örnek siparişlerde ideal günü geçmiş adımlar zaten yapılmış sayılır
-    for (const x of templateTasks(o, pt)) {
-      const ideal = shiftDay(deliveryDate, -x.offset)
-      if (s.d > 0 && ideal < t) tasks.push(withAlloc({ ...x, done: true }, { [ideal]: x.minutes }))
-      else tasks.push(x)
     }
     if (s.img) {
       const pic = await drawCake(pt.color, s.img[1], s.img[0])
@@ -253,30 +237,13 @@ export async function loadDemoData() {
     id: uid(), itemId: s.id, type: 'giris', quantity: s.quantity, unitCost: s.unitCost, date: shiftDay(t, -20), note: 'Açılış stoğu', createdAt: now,
   }))
 
-  await db.transaction('rw', [db.customers, db.orders, db.payments, db.tasks, db.images, db.stockItems, db.stockMoves, db.settings], async () => {
+  await db.transaction('rw', [db.customers, db.orders, db.payments, db.images, db.stockItems, db.stockMoves, db.settings], async () => {
     await db.customers.bulkAdd(customers)
     await db.orders.bulkAdd(orders)
     await db.payments.bulkAdd(payments)
-    await db.tasks.bulkAdd(tasks)
     await db.images.bulkAdd(images)
     await db.stockItems.bulkAdd(stock)
     await db.stockMoves.bulkAdd(moves)
     await db.settings.update('main', { nextOrderNo: no })
   })
-
-  // İş adımlarını kapasiteye göre yerleştir: önce gelecek siparişler, sonra geçmiş/bugün
-  await replanOrders(orders.filter((o) => o.deliveryDate > t).map((o) => o.id), { includeManual: true })
-  await replanOrders(orders.filter((o) => o.deliveryDate <= t).map((o) => o.id), { includeManual: true, allowPast: true })
-  // Geçmiş siparişlerin işleri bitti; bugünkü siparişin bugünden önceki işleri bitti
-  const pastIds = new Set(orders.filter((o) => o.deliveryDate <= t).map((o) => o.id))
-  const all = await db.tasks.toArray()
-  await db.tasks.bulkPut(
-    all
-      .filter((x) => pastIds.has(x.orderId))
-      .map((x) => {
-        const o = orders.find((y) => y.id === x.orderId)!
-        const last = Object.keys(x.alloc).sort().pop() ?? x.start
-        return { ...x, done: o.deliveryDate < t || last < t }
-      }),
-  )
 }

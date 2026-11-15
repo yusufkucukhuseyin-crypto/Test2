@@ -4,7 +4,7 @@ import { Gift, Search, UserPlus, Users } from 'lucide-react'
 import { useCoreData } from '../lib/data'
 import { useSettings } from '../lib/hooks'
 import { upcomingSpecialDays } from '../lib/domain'
-import { fmtDate, matches, money, trLower } from '../lib/format'
+import { contactText, fmtDate, matches, money, trLower } from '../lib/format'
 import { CustomerFormModal } from '../components/shared'
 import { Avatar, Badge, Button, Card, EmptyState, PageHeader, Segmented } from '../components/ui'
 
@@ -30,7 +30,7 @@ export default function Customers() {
       stats.set(o.customerId, s)
     }
     const list = data.customers
-      .filter((c) => matches([c.name, c.phone, c.instagram, c.notes], q))
+      .filter((c) => matches([c.name, c.phone, c.whatsapp, c.instagram, c.notes], q))
       .map((c) => ({ c, s: stats.get(c.id) ?? { count: 0, spent: 0 }, up: upcoming.get(c.id) }))
     list.sort((a, b) => {
       if (sort === 'ad') return trLower(a.c.name).localeCompare(trLower(b.c.name), 'tr')
@@ -102,7 +102,7 @@ export default function Customers() {
                   )}
                 </div>
                 <div className="truncate text-sm text-muted">
-                  {c.phone}
+                  {contactText(c)}
                   {c.instagram ? ` · @${c.instagram}` : ''}
                 </div>
               </div>

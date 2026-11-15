@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
@@ -224,26 +225,71 @@ export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputEleme
   return <input className={cx(inputCls, wFull(className), 'h-11', className)} {...rest} />
 }
 
+/** Yazılan metni sayıya çevirir. integer: para gibi tam sayılar (4.500 -> 4500) */
+export function parseNum(text: string, integer?: boolean): number | undefined {
+  const t = text.trim()
+  if (!t) return undefined
+  if (integer) {
+    const d = t.replace(/\D/g, '')
+    return d ? Number(d) : undefined
+  }
+  // "12,5" -> 12.5 ; "1.250,5" -> 1250.5
+  const norm = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t
+  const n = Number(norm)
+  return Number.isFinite(n) ? n : undefined
+}
+
+/**
+ * Sayı alanı. Kendi metnini tutar: boşaltılabilir, baştaki sıfır yazarken silinir
+ * (ör. 0 iken yazmaya başlayınca "04500" yerine "4500").
+ */
 export function NumberInput({
   value,
   onChange,
   className,
+  integer,
+  onFocus,
+  onBlur,
   ...rest
 }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & {
   value: number | undefined
   onChange: (v: number | undefined) => void
+  /** Yalnızca tam sayı (para tutarları) */
+  integer?: boolean
 }) {
+  const show = (v: number | undefined) => (v === undefined || Number.isNaN(v) ? '' : String(v))
+  const [text, setText] = useState(() => show(value))
+  const focused = useRef(false)
+  // Dışarıdan değer değişince metni güncelle (yazarken boş alanı 0'a çevirme)
+  useEffect(() => {
+    const cur = parseNum(text, integer)
+    if (cur === value) return
+    if (focused.current && cur === undefined && (value === 0 || value === undefined)) return
+    setText(show(value))
+  }, [value]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <input
-      type="number"
-      inputMode="decimal"
+      type="text"
+      inputMode={integer ? 'numeric' : 'decimal'}
+      autoComplete="off"
       className={cx(inputCls, wFull(className), 'h-11', className)}
-      value={value ?? ''}
+      value={text}
       onChange={(e) => {
-        const v = e.target.value
-        onChange(v === '' ? undefined : Number(v.replace(',', '.')))
+        let v = integer ? e.target.value.replace(/[^\d]/g, '') : e.target.value.replace(/[^\d.,-]/g, '')
+        v = v.replace(/^(-?)0+(?=\d)/, '$1')
+        setText(v)
+        onChange(parseNum(v, integer))
       }}
-      onFocus={(e) => e.target.select()}
+      onFocus={(e) => {
+        focused.current = true
+        e.target.select()
+        onFocus?.(e)
+      }}
+      onBlur={(e) => {
+        focused.current = false
+        setText(show(value))
+        onBlur?.(e)
+      }}
       {...rest}
     />
   )
@@ -380,13 +426,16 @@ export function ChipSelect({
   allowCustom?: boolean
   placeholder?: string
 }) {
+  // Seçenek listesinde artık olmayan eski değer de görünsün
+  const shown = !allowCustom && value && !options.includes(value) ? [...options, value] : options
   return (
     <div>
       <div className="flex flex-wrap gap-1.5">
-        {options.map((o) => (
+        {shown.map((o) => (
           <button
             type="button"
             key={o}
+            aria-pressed={value === o}
             onClick={() => onChange(value === o ? '' : o)}
             className={cx(
               'rounded-full border px-3 py-1.5 text-sm transition',
@@ -557,7 +606,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         createPortal(
           <div
             key={msg.key}
-            className="animate-toast fixed bottom-24 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-ink px-4 py-2.5 text-sm text-white shadow-lg md:bottom-8"
+            className="animate-toast fixed bottom-24 print:hidden left-1/2 z-[60] -translate-x-1/2 rounded-full bg-ink px-4 py-2.5 text-sm text-white shadow-lg md:bottom-8"
           >
             {msg.text}
           </div>,

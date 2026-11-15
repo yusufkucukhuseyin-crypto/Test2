@@ -7,36 +7,21 @@ import type {
   ProductType,
   Settings,
   SpecialDay,
-  Task,
 } from '../db/types'
-import { isoDate, parseDay, shiftDay, today } from './format'
+import { isoDate, parseDay, today } from './format'
 
-export const STATUS_ORDER: OrderStatus[] = [
-  'teklif',
-  'onaylandi',
-  'kapora',
-  'hazirlaniyor',
-  'hazir',
-  'teslim',
-]
+/** Durum seçenekleri (İptal ayrıca gösterilir) */
+export const STATUS_ORDER: OrderStatus[] = ['onaylandi', 'teslim']
 
 export const STATUS: Record<OrderStatus, { label: string; cls: string; dot: string }> = {
-  teklif: { label: 'Teklif', cls: 'bg-stone-100 text-stone-700', dot: '#a8a29e' },
   onaylandi: { label: 'Onaylandı', cls: 'bg-sky-100 text-sky-800', dot: '#38bdf8' },
-  kapora: { label: 'Kapora alındı', cls: 'bg-violet-100 text-violet-800', dot: '#a78bfa' },
-  hazirlaniyor: { label: 'Hazırlanıyor', cls: 'bg-amber-100 text-amber-800', dot: '#f59e0b' },
-  hazir: { label: 'Hazır', cls: 'bg-teal-100 text-teal-800', dot: '#14b8a6' },
   teslim: { label: 'Teslim edildi', cls: 'bg-emerald-100 text-emerald-800', dot: '#10b981' },
-  iptal: { label: 'İptal', cls: 'bg-red-100 text-red-700', dot: '#ef4444' },
+  iptal: { label: 'İptal edildi', cls: 'bg-red-100 text-red-700', dot: '#ef4444' },
 }
 
-/** Kapasiteye dahil edilen (kesinleşmiş) durumlar */
-export function isFirm(s: OrderStatus): boolean {
-  return s !== 'teklif' && s !== 'iptal'
-}
-
+/** Açık (henüz teslim edilmemiş, iptal olmayan) sipariş */
 export function isOpen(s: OrderStatus): boolean {
-  return s !== 'teslim' && s !== 'iptal'
+  return s === 'onaylandi'
 }
 
 export function productTypeOf(settings: Settings, key: string): ProductType {
@@ -48,7 +33,6 @@ export function productTypeOf(settings: Settings, key: string): ProductType {
       unitPrice: 0,
       color: '#999999',
       hasTiers: false,
-      tasks: [],
     }
   )
 }
@@ -68,9 +52,19 @@ export function depositTotal(payments: Payment[]): number {
   return payments.filter((p) => p.kind === 'kapora').reduce((s, p) => s + p.amount, 0)
 }
 
-export function calcTotal(unitPrice: number | undefined, amount: number | undefined, extras: { amount: number }[]): number {
-  const base = (unitPrice || 0) * (amount || 0)
-  return base + extras.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+export interface PriceParts {
+  unitPrice?: number
+  amount?: number
+  extras: { amount: number }[]
+  deliveryFee?: number
+  discount?: number
+}
+
+/** Dilim (kişi) fiyatı × kişi sayısı + ekstralar + teslimat ücreti − indirim */
+export function calcTotal(p: PriceParts): number {
+  const base = (p.unitPrice || 0) * (p.amount || 0)
+  const extras = p.extras.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+  return Math.max(0, base + extras + (p.deliveryFee || 0) - (p.discount || 0))
 }
 
 /** Pazartesi = 0 ... Pazar = 6 */
@@ -82,18 +76,6 @@ export function capacityFor(settings: Settings, date: string): number {
   const o = settings.capacityOverrides[date]
   if (o !== undefined) return o
   return settings.weekdayCapacity[weekdayIndex(date)] ?? 0
-}
-
-/** Görevin çalışıldığı son gün */
-export function taskEnd(t: Task): string {
-  const keys = Object.keys(t.alloc ?? {}).sort()
-  return keys.length ? keys[keys.length - 1] : shiftDay(t.start, Math.max(1, t.days) - 1)
-}
-
-/** Görev o gün çalışılıyor mu (kapalı günler arada kalsa da yalnızca dağıtılan günler) */
-export function taskCovers(t: Task, date: string): boolean {
-  if (t.alloc && Object.keys(t.alloc).length) return date in t.alloc
-  return t.start <= date && date <= taskEnd(t)
 }
 
 export interface UpcomingDay {

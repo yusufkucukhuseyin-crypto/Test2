@@ -3,20 +3,18 @@ import { Link } from 'react-router-dom'
 import { addMonths, endOfMonth, endOfWeek, startOfMonth, startOfWeek, eachDayOfInterval, format } from 'date-fns'
 import { tr } from 'date-fns/locale'
 import { AlertTriangle, ChevronLeft, ChevronRight, Gift, Lock, Plus } from 'lucide-react'
-import { ordersWithWorkOn, replanOrders, setDayCapacity } from '../db/actions'
-import { useCoreData, usePlanData, sortByDelivery } from '../lib/data'
+import { setDayCapacity } from '../db/actions'
+import { useCoreData, sortByDelivery } from '../lib/data'
 import { useSettings } from '../lib/hooks'
-import { productTypeOf, specialDayText, taskCovers, upcomingSpecialDays, weekdayIndex, capacityFor } from '../lib/domain'
+import { productTypeOf, specialDayText, upcomingSpecialDays, weekdayIndex, capacityFor } from '../lib/domain'
 import { WEEKDAYS, WEEKDAYS_SHORT, fmtDate, isoDate, today } from '../lib/format'
-import { TONE, dayUsage, fmtHours, fmtMin, usageTone } from '../lib/schedule'
+import { TONE, countByDay, dayStatus, fmtCount } from '../lib/capacity'
 import { OrderRow } from '../components/shared'
-import { ask, tell } from '../components/confirm'
 import { Button, Card, IconButton, Input, LinkButton, NumberInput, PageHeader, cx, useToast } from '../components/ui'
 
 export default function CalendarPage() {
   const settings = useSettings()
   const data = useCoreData()
-  const plan = usePlanData()
   const toast = useToast()
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
   const [selected, setSelected] = useState(today())
@@ -41,48 +39,26 @@ export default function CalendarPage() {
     return m
   }, [data, days])
 
-  if (!settings || !data || !plan) return null
+  if (!settings || !data) return null
   const t = today()
   const monthKey = format(month, 'yyyy-MM')
+  const counts = countByDay(data.orders)
   const dayOrders = (d: string) => data.orders.filter((o) => o.deliveryDate === d && o.status !== 'iptal').sort(sortByDelivery)
   const selOrders = dayOrders(selected)
-  const selUsage = dayUsage(settings, plan.load, selected)
-  const selTone = usageTone(selUsage)
-  const selTasks = plan.tasks.filter((x) => taskCovers(x, selected))
+  const sel = dayStatus(settings, counts, selected)
   const defaultCap = settings.weekdayCapacity[weekdayIndex(selected)] ?? 0
   const isOverride = settings.capacityOverrides[selected] !== undefined
 
-  /** Kapasiteyi değiştirir; o gündeki işler yeni kapasiteyi aşıyorsa yeniden yerleştirmeyi önerir */
-  const changeCapacity = async (hours: number | undefined) => {
-    await setDayCapacity([selected], hours)
-    const newCap = Math.round((hours ?? defaultCap) * 60)
-    if (selUsage.used > newCap) {
-      const ids = await ordersWithWorkOn([selected])
-      const ok = await ask(
-        `${fmtDate(selected, 'd MMMM')} gününde ${fmtMin(selUsage.used)} iş planlı; yeni kapasite ${fmtHours(newCap)} saat.\nBu günde işi olan ${ids.length} siparişin işleri kapasiteye göre yeniden yerleştirilsin mi?`,
-        { confirmLabel: 'Yeniden yerleştir', danger: false },
-      )
-      if (ok) await runReplan(ids)
-    } else toast(hours === 0 ? 'Gün kapatıldı' : 'Kapasite güncellendi')
-  }
-
-  const runReplan = async (ids: string[] | null) => {
-    const r = await replanOrders(ids, { includeManual: true })
-    if (r.late.length) {
-      const lines = r.late.map((l) => {
-        const o = data.orders.find((x) => x.id === l.orderId)
-        const c = o ? data.customerById.get(o.customerId)?.name : ''
-        return `• ${c} (#${o?.no}) — ${o ? fmtDate(o.deliveryDate, 'd MMM') : ''}${l.earliest ? `, en erken ${fmtDate(l.earliest, 'd MMM EEE')}` : ''}`
-      })
-      await tell(`İşler yeniden yerleştirildi. Şu siparişler teslim tarihine kapasiteye sığmıyor:\n${lines.join('\n')}\n\nTeslim tarihini ileri almak için siparişi düzenleyin.`)
-    } else toast(`${r.orders} siparişin işleri yeniden yerleştirildi`)
+  const changeCapacity = async (count: number | undefined) => {
+    await setDayCapacity([selected], count)
+    toast(count === 0 ? 'Gün kapatıldı' : 'Kapasite güncellendi')
   }
 
   return (
     <div>
       <PageHeader
         title="Takvim"
-        subtitle="Teslimler ve günlük üretim kapasitesi (saat)"
+        subtitle="Teslimler ve günlük doluluk (aynı gün teslim edilecek sipariş sayısı)"
         actions={
           <div className="flex items-center gap-1">
             <IconButton label="Önceki ay" onClick={() => setMonth(addMonths(month, -1))}>
@@ -118,8 +94,8 @@ export default function CalendarPage() {
             {days.map((d) => {
               const inMonth = d.startsWith(monthKey)
               const orders = dayOrders(d)
-              const u = dayUsage(settings, plan.load, d)
-              const tone = usageTone(u)
+              const st = dayStatus(settings, counts, d)
+              const colored = d >= t && inMonth
               const sp = specialsByDate.get(d)
               const note = settings.dayNotes?.[d]
               return (
@@ -127,13 +103,15 @@ export default function CalendarPage() {
                   type="button"
                   key={d}
                   data-date={d}
-                  aria-label={fmtDate(d, 'd MMMM EEEE')}
+                  data-tone={colored ? st.tone : undefined}
+                  aria-label={`${fmtDate(d, 'd MMMM EEEE')}${colored ? ` · ${TONE[st.tone].label}` : ''}`}
                   onClick={() => setSelected(d)}
                   className={cx(
                     'relative flex min-h-[72px] flex-col items-stretch gap-1 border-r border-b border-line p-1 text-left transition sm:min-h-[108px] sm:p-1.5',
                     !inMonth && 'text-stone-400',
-                    u.closed && 'bg-[repeating-linear-gradient(135deg,transparent,transparent_6px,rgba(120,113,108,0.08)_6px,rgba(120,113,108,0.08)_12px)]',
-                    selected === d ? 'bg-accent-soft/60 ring-2 ring-accent ring-inset' : 'hover:bg-stone-50',
+                    colored && TONE[st.tone].cell,
+                    st.closed && 'bg-[repeating-linear-gradient(135deg,transparent,transparent_6px,rgba(120,113,108,0.08)_6px,rgba(120,113,108,0.08)_12px)]',
+                    selected === d ? 'ring-2 ring-accent ring-inset' : 'hover:brightness-[0.97]',
                     d < t && 'opacity-70',
                   )}
                 >
@@ -148,29 +126,21 @@ export default function CalendarPage() {
                     </span>
                     <span className="flex items-center gap-0.5">
                       {sp && <Gift size={13} className="text-accent" />}
-                      {u.closed && <Lock size={12} className="text-stone-400" />}
+                      {st.closed && <Lock size={12} className="text-stone-400" />}
                     </span>
                   </div>
-                  {u.closed ? (
-                    <div className={cx('truncate text-[10px] leading-tight', tone === 'asim' ? 'font-medium text-red-600' : 'text-stone-500')}>
-                      {tone === 'asim' ? 'Kapalı · iş var!' : note || 'Kapalı'}
+                  {colored && (
+                    <div className={cx('truncate text-[10px] leading-tight font-medium', TONE[st.tone].text)}>
+                      {st.closed ? (st.count ? 'Kapalı · sipariş var!' : note || 'Kapalı') : `${TONE[st.tone].label}${st.count ? ` · ${st.count}/${st.cap}` : ''}`}
+                      {!st.closed && note ? <span className="hidden sm:inline"> · {note}</span> : null}
                     </div>
-                  ) : d < t ? null : (
-                    <>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-200" title={`${fmtMin(u.used)} / ${fmtHours(u.cap)} sa`}>
-                        <div className={cx('h-full', TONE[tone].bar)} style={{ width: `${Math.min(100, u.ratio * 100)}%` }} />
-                      </div>
-                      <div className={cx('hidden text-[10px] leading-tight sm:block', TONE[tone].text)}>
-                        {fmtHours(u.used)}/{fmtHours(u.cap)} sa{note ? ` · ${note}` : ''}
-                      </div>
-                    </>
                   )}
                   {/* Telefonda noktalar, tablette etiketler */}
                   <div className="flex flex-wrap gap-0.5 sm:hidden">
                     {orders.slice(0, 6).map((o) => (
                       <span
                         key={o.id}
-                        className={cx('h-1.5 w-1.5 rounded-full', o.status === 'teklif' && 'opacity-40')}
+                        className="h-1.5 w-1.5 rounded-full"
                         style={{ background: productTypeOf(settings, o.productType).color }}
                       />
                     ))}
@@ -179,11 +149,8 @@ export default function CalendarPage() {
                     {orders.slice(0, 2).map((o) => (
                       <span
                         key={o.id}
-                        className={cx(
-                          'truncate rounded px-1 py-0.5 text-[11px] leading-tight text-ink',
-                          o.status === 'teklif' && 'border border-dashed border-stone-300 bg-transparent',
-                        )}
-                        style={o.status !== 'teklif' ? { background: productTypeOf(settings, o.productType).color + '33' } : undefined}
+                        className="truncate rounded bg-white/80 px-1 py-0.5 text-[11px] leading-tight text-ink"
+                        style={{ borderLeft: `3px solid ${productTypeOf(settings, o.productType).color}` }}
                       >
                         🎂 {data.customerById.get(o.customerId)?.name.split(' ')[0]}
                       </span>
@@ -197,14 +164,14 @@ export default function CalendarPage() {
           <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3 text-xs text-muted">
             {(['uygun', 'yogun', 'dolu', 'asim'] as const).map((k) => (
               <span key={k} className="inline-flex items-center gap-1.5">
-                <span className={cx('h-2 w-4 rounded-full', TONE[k].bar)} />
+                <span className={cx('h-2.5 w-2.5 rounded-full', TONE[k].dot)} />
                 {TONE[k].label}
               </span>
             ))}
             <span className="inline-flex items-center gap-1.5">
               <Lock size={12} /> Kapalı gün
             </span>
-            <span>Çubuk: o gün planlanan üretim saati / günlük kapasite</span>
+            <span>Günlük kapasite: {settings.weekdayCapacity[0]} sipariş (Ayarlar’dan değişir)</span>
           </div>
         </Card>
 
@@ -224,27 +191,15 @@ export default function CalendarPage() {
               </LinkButton>
             </div>
 
-            <div className="mt-4">
-              <div className="mb-1 flex justify-between text-sm">
-                <span className={TONE[selTone].text}>
-                  {selUsage.closed ? 'Kapalı gün' : `${fmtMin(selUsage.used)} / ${fmtHours(selUsage.cap)} sa planlı`}
-                </span>
-                {!selUsage.closed && selUsage.cap > selUsage.used && <span className="text-muted">{fmtMin(selUsage.cap - selUsage.used)} boş</span>}
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-stone-200">
-                <div className={cx('h-full', TONE[selTone].bar)} style={{ width: `${Math.min(100, selUsage.ratio * 100)}%` }} />
-              </div>
+            <div className="mt-4 flex items-center gap-2">
+              <span className={cx('rounded-full px-2.5 py-1 text-sm font-medium', TONE[sel.tone].chip)}>{TONE[sel.tone].label}</span>
+              <span className="text-sm text-muted">{sel.closed ? 'Kapalı gün' : fmtCount(sel)}</span>
             </div>
 
-            {selTone === 'asim' && selected >= t && (
-              <div className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                  Bu güne kapasiteden fazla iş planlı{selUsage.closed ? ' (gün kapalı)' : ''}.
-                </div>
-                <Button size="sm" variant="primary" className="mt-2" onClick={async () => runReplan(await ordersWithWorkOn([selected]))}>
-                  İşleri kapasiteye göre yeniden yerleştir
-                </Button>
+            {sel.tone === 'asim' && selected >= t && (
+              <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-800">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                {sel.closed ? 'Gün kapalı ama teslim edilecek sipariş var.' : `Bu güne kapasiteden fazla sipariş girildi (${fmtCount(sel)}).`}
               </div>
             )}
 
@@ -292,32 +247,6 @@ export default function CalendarPage() {
             )}
           </Card>
 
-          <Card className="p-4">
-            <div className="mb-2 flex items-center justify-between text-sm font-semibold">
-              <span>Bu günün işleri</span>
-              <Link to="/planlama" className="font-normal text-accent-ink">
-                Üretim planı
-              </Link>
-            </div>
-            {selTasks.length ? (
-              <ul className="space-y-1.5">
-                {selTasks.map((x) => {
-                  const o = plan.orderById.get(x.orderId)
-                  return (
-                    <li key={x.id} className={cx('flex items-center gap-2 text-sm', x.done && 'text-muted line-through')}>
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: o ? productTypeOf(settings, o.productType).color : '#ccc' }} />
-                      <span className="min-w-0 flex-1 truncate">
-                        {x.name} — {o ? data.customerById.get(o.customerId)?.name : ''}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-muted">{fmtMin(x.alloc[selected] ?? 0)}</span>
-                    </li>
-                  )
-                })}
-              </ul>
-            ) : (
-              <div className="text-sm text-muted">Bu güne planlanmış iş yok.</div>
-            )}
-          </Card>
         </div>
       </div>
     </div>
@@ -336,16 +265,16 @@ function CapacityEditor({
   defaultCap: number
   isOverride: boolean
   note: string
-  onSave: (hours: number | undefined) => void
+  onSave: (count: number | undefined) => void
   onNote: (n: string) => void
 }) {
   const [hours, setHours] = useState<number | undefined>(current)
   const [noteDraft, setNoteDraft] = useState(note)
   return (
     <div className="mt-4 space-y-3 border-t border-line pt-4">
-      <div className="text-[13px] font-medium text-muted">Bu günün kapasitesi (çalışma saati)</div>
+      <div className="text-[13px] font-medium text-muted">Bu günün kapasitesi (sipariş sayısı)</div>
       <div className="flex flex-wrap items-center gap-2">
-        <NumberInput className="w-24" value={hours} onChange={setHours} min={0} step={0.5} aria-label="Kapasite (saat)" />
+        <NumberInput className="w-24" value={hours} onChange={setHours} min={0} step={1} aria-label="Kapasite (sipariş)" />
         <Button variant="primary" disabled={hours === undefined || hours === current} onClick={() => onSave(hours === defaultCap ? undefined : hours)}>
           Kaydet
         </Button>
@@ -366,7 +295,7 @@ function CapacityEditor({
               onSave(undefined)
             }}
           >
-            Aç ({defaultCap} sa)
+            Aç ({defaultCap} sipariş)
           </Button>
         )}
         {isOverride && current > 0 && (
@@ -377,7 +306,7 @@ function CapacityEditor({
               onSave(undefined)
             }}
           >
-            Varsayılan ({defaultCap} sa)
+            Varsayılan ({defaultCap} sipariş)
           </Button>
         )}
       </div>
@@ -390,8 +319,7 @@ function CapacityEditor({
         )}
       </div>
       <p className="text-xs text-muted">
-        Kapalı (0 saat) günlere iş yerleştirilmez; o günlerin işleri önceki ya da sonraki açık günlere kayar. Birden fazla günü
-        birlikte kapatmak için <Link to="/ayarlar" className="text-accent-ink underline">Ayarlar → Kapalı günler</Link>.
+        Kapalı (0) günler takvimde taralı görünür ve sipariş girerken uyarı verilir. Birden fazla günü birlikte kapatmak için <Link to="/ayarlar" className="text-accent-ink underline">Ayarlar → Kapalı günler</Link>.
       </p>
     </div>
   )

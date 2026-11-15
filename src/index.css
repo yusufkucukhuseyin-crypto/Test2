@@ -92,3 +92,16 @@ textarea {
 .animate-toast {
   animation: toast-in 0.2s ease-out;
 }
+
+/* Sipariş fişi yazdırma */
+@page {
+  size: A4;
+  margin: 12mm;
+}
+@media print {
+  body {
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

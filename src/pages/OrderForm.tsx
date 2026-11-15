@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ImagePlus, Plus, Trash2, X } from 'lucide-react'
 import { db } from '../db/db'
 import { createOrder, updateOrder, type OrderInput } from '../db/actions'
 import type { ImageKind, OrderStatus, PriceExtra } from '../db/types'
-import { STATUS, STATUS_ORDER, calcTotal, productTypeOf } from '../lib/domain'
+import { STATUS, calcTotal, productTypeOf } from '../lib/domain'
 import { money, parseDay, today, uid } from '../lib/format'
 import { useSettings } from '../lib/hooks'
 import { CustomerPicker, IMAGE_KINDS } from '../components/shared'
-import { PlanHint } from '../components/PlanHint'
+import { DayHint } from '../components/DayHint'
 import {
   Button,
   Card,
@@ -41,10 +41,9 @@ function emptyForm(date?: string): Form {
     cakeType: '',
     creamType: '',
     filling: '',
-    theme: '',
     cakeText: '',
+    cardText: '',
     designNotes: '',
-    designApproved: false,
     notes: '',
     deliveryDate: date ?? '',
     deliveryTime: '',
@@ -52,9 +51,11 @@ function emptyForm(date?: string): Form {
     deliveryAddress: '',
     unitPrice: undefined,
     extras: [],
+    deliveryFee: undefined,
+    discount: undefined,
     calculatedTotal: 0,
     agreedPrice: 0,
-    status: 'teklif',
+    status: 'onaylandi',
   }
 }
 
@@ -73,7 +74,12 @@ export default function OrderForm() {
   const settings = useSettings()
   const isEdit = Boolean(id)
 
-  const [form, setForm] = useState<Form>(() => emptyForm(params.get('tarih') ?? undefined))
+  const [form, setForm] = useState<Form>(() => {
+    const f = emptyForm(params.get('tarih') ?? undefined)
+    // Fiyat listesindeki "Bu fiyatla sipariş oluştur"dan gelen değerler
+    const num = (k: string) => (params.get(k) ? Number(params.get(k)) || undefined : undefined)
+    return { ...f, productType: params.get('tur') ?? f.productType, amount: num('kisi'), discount: num('indirim') }
+  })
   const [loaded, setLoaded] = useState(!isEdit && !params.get('kaynak'))
   const [agreedTouched, setAgreedTouched] = useState(isEdit)
   const [deposit, setDeposit] = useState<{ amount?: number; method: string; date: string }>({
@@ -110,7 +116,6 @@ export default function OrderForm() {
           cakeType: o.cakeType,
           creamType: o.creamType,
           filling: o.filling,
-          theme: o.theme,
           designNotes: o.designNotes,
           unitPrice: o.unitPrice,
           extras: o.extras.map((e) => ({ ...e, id: uid() })),
@@ -128,7 +133,11 @@ export default function OrderForm() {
   // Varsayılan birim fiyat ve ödeme yöntemi
   useEffect(() => {
     if (!settings || !loaded) return
-    if (form.unitPrice === undefined && !isEdit) set('unitPrice', productTypeOf(settings, form.productType).unitPrice)
+    if (!isEdit && !settings.productTypes.some((p) => p.key === form.productType) && settings.productTypes[0]) {
+      // Varsayılan tür fiyat listesinde yoksa ilk türü seç
+      const first = settings.productTypes[0]
+      setForm((f) => ({ ...f, productType: first.key, unitPrice: first.unitPrice, tiers: first.hasTiers ? f.tiers || 1 : undefined }))
+    } else if (form.unitPrice === undefined && !isEdit) set('unitPrice', productTypeOf(settings, form.productType).unitPrice)
     if (!deposit.method) setDeposit((d) => ({ ...d, method: settings.options.paymentMethods[0] ?? 'Nakit' }))
   }, [settings, loaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -138,7 +147,11 @@ export default function OrderForm() {
     db.customers.get(form.customerId).then((c) => c?.address && set('deliveryAddress', c.address))
   }, [form.deliveryMethod, form.customerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const calc = useMemo(() => calcTotal(form.unitPrice, form.amount, form.extras), [form.unitPrice, form.amount, form.extras])
+  const fee = form.deliveryMethod === 'adres' ? form.deliveryFee || 0 : 0
+  const calc = useMemo(
+    () => calcTotal({ unitPrice: form.unitPrice, amount: form.amount, extras: form.extras, deliveryFee: fee, discount: form.discount }),
+    [form.unitPrice, form.amount, form.extras, fee, form.discount],
+  )
   useEffect(() => {
     if (!agreedTouched) set('agreedPrice', calc)
   }, [calc, agreedTouched])
@@ -179,6 +192,8 @@ export default function OrderForm() {
         extras: form.extras.filter((e) => e.label || e.amount),
         tiers: pt.hasTiers ? form.tiers : undefined,
         deliveryAddress: form.deliveryMethod === 'adres' ? form.deliveryAddress : '',
+        deliveryFee: form.deliveryMethod === 'adres' ? form.deliveryFee || 0 : 0,
+        discount: form.discount || 0,
       }
       if (isEdit && id) {
         await updateOrder(id, input)
@@ -258,9 +273,15 @@ export default function OrderForm() {
                 >
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
                   {p.label}
+                  {p.unitPrice > 0 && (
+                    <span className="text-xs font-normal text-muted">
+                      {money(p.unitPrice)}/{p.unit === 'kişi' ? 'dilim' : 'adet'}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
+            {pt.desc && <p className="-mt-1 mb-3 text-sm text-muted">{pt.desc}</p>}
             <div className="grid grid-cols-2 gap-3">
               <Field label={pt.unit === 'kişi' ? 'Kişi sayısı' : 'Adet'}>
                 <NumberInput value={form.amount} onChange={(v) => set('amount', v)} min={0} />
@@ -278,20 +299,26 @@ export default function OrderForm() {
 
           <Section title="İçerik">
             <div className="grid gap-3 md:grid-cols-2">
-              <Field label="Kek cinsi">
-                <ComboInput options={settings.options.cakeTypes} value={form.cakeType} onChange={(v) => set('cakeType', v)} />
+              <Field label="Kek cinsi" group>
+                <ChipSelect allowCustom={false} options={settings.options.cakeTypes} value={form.cakeType} onChange={(v) => set('cakeType', v)} />
               </Field>
-              <Field label="Krema cinsi">
-                <ComboInput options={settings.options.creamTypes} value={form.creamType} onChange={(v) => set('creamType', v)} />
+              <Field label="Krema cinsi" group>
+                <ChipSelect allowCustom={false} options={settings.options.creamTypes} value={form.creamType} onChange={(v) => set('creamType', v)} />
               </Field>
               <Field label="İç dolgu / içerikler (birden çok seçilebilir)" className="md:col-span-2" group>
                 <MultiChipSelect options={settings.options.fillings} value={form.filling} onChange={(v) => set('filling', v)} />
               </Field>
-              <Field label="Tema">
-                <ComboInput options={settings.options.themes} value={form.theme} onChange={(v) => set('theme', v)} />
-              </Field>
               <Field label="Pasta üstü yazı">
                 <Input value={form.cakeText ?? ''} onChange={(e) => set('cakeText', e.target.value)} placeholder="Örn. İyi ki doğdun Elif" />
+              </Field>
+              <Field label="Tebrik kartı yazısı">
+                <Textarea
+                  className="min-h-[44px]"
+                  rows={2}
+                  value={form.cardText ?? ''}
+                  onChange={(e) => set('cardText', e.target.value)}
+                  placeholder="Karta yazılacak mesaj"
+                />
               </Field>
             </div>
           </Section>
@@ -304,9 +331,6 @@ export default function OrderForm() {
                 placeholder="Renkler, figürler, referans açıklaması…"
               />
             </Field>
-            <div className="mt-3">
-              <Toggle checked={!!form.designApproved} onChange={(v) => set('designApproved', v)} label="Tasarım müşteriyle onaylandı" />
-            </div>
             {!isEdit && (
               <div className="mt-4">
                 <div className="mb-2 text-[13px] font-medium text-muted">Görseller</div>
@@ -372,13 +396,7 @@ export default function OrderForm() {
               </Field>
             </div>
             {form.status !== 'iptal' && (
-              <PlanHint
-                productType={form.productType}
-                amount={form.amount}
-                deliveryDate={form.deliveryDate}
-                excludeOrderId={id}
-                onPickDate={(d) => set('deliveryDate', d)}
-              />
+              <DayHint settings={settings} date={form.deliveryDate} excludeOrderId={id} onPickDate={(d) => set('deliveryDate', d)} />
             )}
             <div className="mt-3">
               <Segmented
@@ -391,23 +409,26 @@ export default function OrderForm() {
               />
             </div>
             {form.deliveryMethod === 'adres' && (
-              <Field label="Teslimat adresi" className="mt-3">
-                <Textarea className="min-h-[64px]" value={form.deliveryAddress ?? ''} onChange={(e) => set('deliveryAddress', e.target.value)} />
-              </Field>
+              <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_160px]">
+                <Field label="Teslimat adresi">
+                  <Textarea className="min-h-[64px]" value={form.deliveryAddress ?? ''} onChange={(e) => set('deliveryAddress', e.target.value)} />
+                </Field>
+                <Field label="Adrese teslim ücreti" hint="Toplama eklenir">
+                  <NumberInput integer value={form.deliveryFee} onChange={(v) => set('deliveryFee', v)} placeholder="₺" />
+                </Field>
+              </div>
             )}
           </Section>
         </div>
 
         <div className="space-y-4">
           <Section title="Fiyat">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={pt.unit === 'kişi' ? 'Kişi başı fiyat' : 'Adet fiyatı'}>
-                <NumberInput value={form.unitPrice} onChange={(v) => set('unitPrice', v)} min={0} />
-              </Field>
-              <Field label={pt.unit === 'kişi' ? 'Kişi sayısı' : 'Adet'}>
-                <NumberInput value={form.amount} onChange={(v) => set('amount', v)} min={0} />
-              </Field>
-            </div>
+            <PriceSource
+              unitLabel={pt.unit === 'kişi' ? 'Dilim fiyatı' : 'Adet fiyatı'}
+              orderPrice={form.unitPrice}
+              listPrice={pt.unitPrice}
+              onUseList={() => set('unitPrice', pt.unitPrice)}
+            />
             <div className="mt-3">
               <div className="mb-1 flex items-center justify-between">
                 <span className="text-[13px] font-medium text-muted">Ekstralar (aksesuar, oyuncak, özel malzeme…)</span>
@@ -424,6 +445,7 @@ export default function OrderForm() {
                       />
                     </div>
                     <NumberInput
+                      integer
                       className="w-28"
                       value={e.amount || undefined}
                       onChange={(v) => updateExtra(e.id, { amount: v ?? 0 })}
@@ -444,14 +466,23 @@ export default function OrderForm() {
                 </Button>
               </div>
             </div>
+            <Field label="İndirim" className="mt-3" hint="Toplamdan düşülür">
+              <NumberInput integer value={form.discount} onChange={(v) => set('discount', v)} placeholder="₺" />
+            </Field>
             <div className="mt-4 space-y-1.5 rounded-xl bg-stone-50 p-3 text-sm">
-              <Row label={`Baz (${form.amount || 0} ${pt.unit} × ${money(form.unitPrice)})`} value={money((form.unitPrice || 0) * (form.amount || 0))} />
-              {form.extras.length > 0 && <Row label="Ekstralar" value={money(form.extras.reduce((s, e) => s + (e.amount || 0), 0))} />}
+              <Row
+                label={`${form.amount || 0} ${pt.unit === 'kişi' ? 'dilim' : 'adet'} × ${money(form.unitPrice)}`}
+                value={money((form.unitPrice || 0) * (form.amount || 0))}
+              />
+              {form.extras.some((e) => e.amount) && <Row label="Ekstralar" value={money(form.extras.reduce((s, e) => s + (e.amount || 0), 0))} />}
+              {fee > 0 && <Row label="Adrese teslim" value={money(fee)} />}
+              {!!form.discount && <Row label="İndirim" value={`−${money(form.discount)}`} />}
               <Row label={<b>Hesaplanan toplam</b>} value={<b>{money(calc)}</b>} />
             </div>
             <Field label="Anlaşılan tutar" className="mt-3" hint={form.agreedPrice !== calc ? `Hesaplanandan fark: ${money((form.agreedPrice || 0) - calc)}` : undefined}>
               <div className="flex gap-2">
                 <NumberInput
+                  integer
                   value={form.agreedPrice}
                   onChange={(v) => {
                     setAgreedTouched(true)
@@ -475,7 +506,7 @@ export default function OrderForm() {
               <div className="mt-4 border-t border-line pt-4">
                 <div className="mb-2 text-[13px] font-medium text-muted">Alınan kapora</div>
                 <div className="grid grid-cols-2 gap-2">
-                  <NumberInput value={deposit.amount} onChange={(v) => setDeposit((d) => ({ ...d, amount: v }))} placeholder="Tutar ₺" />
+                  <NumberInput integer value={deposit.amount} onChange={(v) => setDeposit((d) => ({ ...d, amount: v }))} placeholder="Tutar ₺" />
                   <Select value={deposit.method} onChange={(e) => setDeposit((d) => ({ ...d, method: e.target.value }))}>
                     {settings.options.paymentMethods.map((m) => (
                       <option key={m}>{m}</option>
@@ -492,18 +523,13 @@ export default function OrderForm() {
           </Section>
 
           <Section title="Durum ve notlar">
-            <Field label="Sipariş durumu">
-              <Select value={form.status} onChange={(e) => set('status', e.target.value as OrderStatus)}>
-                {[...STATUS_ORDER, 'iptal' as const].map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS[s].label}
-                  </option>
-                ))}
-              </Select>
+            <Field label="Sipariş durumu" group>
+              <Segmented<OrderStatus>
+                value={form.status}
+                onChange={(v) => set('status', v)}
+                options={(['onaylandi', 'teslim', 'iptal'] as const).map((s) => ({ value: s, label: STATUS[s].label }))}
+              />
             </Field>
-            {!isEdit && !!deposit.amount && form.status === 'teklif' && (
-              <div className="mt-1 text-xs text-muted">Kapora girildiği için kayıtta durum “Kapora alındı” olacak.</div>
-            )}
             <Field label="Notlar" className="mt-3">
               <Textarea value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
             </Field>
@@ -545,6 +571,41 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="mb-3 font-display text-lg text-ink">{title}</h2>
       {children}
     </Card>
+  )
+}
+
+/** Fiyat listesinden gelen dilim / adet fiyatı (formda elle girilmez) */
+function PriceSource({
+  unitLabel,
+  orderPrice,
+  listPrice,
+  onUseList,
+}: {
+  unitLabel: string
+  orderPrice: number | undefined
+  listPrice: number
+  onUseList: () => void
+}) {
+  const differs = orderPrice !== undefined && orderPrice !== listPrice
+  return (
+    <div className="rounded-xl border border-line px-3 py-2.5 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-muted">{unitLabel}</span>
+        <b className="tabular-nums">{money(orderPrice ?? listPrice)}</b>
+      </div>
+      {differs ? (
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+          <span>Fiyat listesinde şu an {money(listPrice)}</span>
+          <button type="button" className="font-medium text-accent-ink underline" onClick={onUseList}>
+            Listedeki fiyatı kullan
+          </button>
+        </div>
+      ) : (
+        <div className="mt-0.5 text-xs text-muted">
+          Fiyat listesinden gelir · <Link to="/fiyat-listesi" className="underline">Fiyat listesi</Link>
+        </div>
+      )}
+    </div>
   )
 }
 

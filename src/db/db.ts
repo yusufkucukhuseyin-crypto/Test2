@@ -50,7 +50,18 @@ export class AppDB extends Dexie {
             for (let i = 0; i < days; i++) t.alloc[shiftDay(t.start, i)] = 60
           }),
       )
+    // Sürüm 3: sipariş durumları üçe indi (Onaylandı / Teslim edildi / İptal)
+    this.version(3)
+      .stores({})
+      .upgrade((tx) => tx.table('orders').toCollection().modify((o: Order) => normalizeOrder(o)))
   }
+}
+
+/** Eski sürümlerden gelen sipariş durumlarını yeni üç duruma çevirir */
+export function normalizeOrder(o: Order): Order {
+  const s = o.status as string
+  if (s !== 'onaylandi' && s !== 'teslim' && s !== 'iptal') o.status = 'onaylandi'
+  return o
 }
 
 export const db = new AppDB()

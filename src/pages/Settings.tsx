@@ -1,25 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { ArrowDown, ArrowUp, Check, Download, Plus, Trash2, Upload, X } from 'lucide-react'
+import { Check, Download, ImageUp, Trash2, Upload, X } from 'lucide-react'
 import { db } from '../db/db'
 import { ACCENTS } from '../db/defaults'
-import { ordersWithWorkOn, replanOrders, setDayCapacity, updateSettings } from '../db/actions'
-import { downloadBlob, exportBackup, importBackup, wipeAll } from '../db/backup'
+import { setDayCapacity, updateSettings } from '../db/actions'
+import { exportBackup, importBackup, saveFile, wipeAll } from '../db/backup'
 import { loadDemoData } from '../db/seed'
-import type { OptionLists, ProductType, Settings, TaskTemplate } from '../db/types'
+import type { OptionLists, Settings } from '../db/types'
 import { useSettings } from '../lib/hooks'
-import { WEEKDAYS, fmtDate, shiftDay, today, uid } from '../lib/format'
-import { fmtMin, stepMinutes } from '../lib/schedule'
-import { Button, Card, CardHeader, Field, IconButton, Input, NumberInput, PageHeader, Select, Toggle, cx, useToast } from '../components/ui'
+import { WEEKDAYS, fmtDate, shiftDay, today } from '../lib/format'
+import { dominantColor, paletteFromHex, processLogo, resolveAccent } from '../lib/color'
+import { Button, Card, CardHeader, Field, IconButton, Input, NumberInput, PageHeader, cx, useToast } from '../components/ui'
 import { ask, tell } from '../components/confirm'
 
-type Draft = Pick<Settings, 'businessName' | 'weekdayCapacity' | 'productTypes' | 'options' | 'reminderDays'>
+type Draft = Pick<Settings, 'businessName' | 'weekdayCapacity' | 'options' | 'reminderDays'>
 
 const OPTION_LABELS: [keyof OptionLists, string][] = [
   ['cakeTypes', 'Kek cinsleri'],
   ['creamTypes', 'Krema cinsleri'],
   ['fillings', 'İç dolgu / içerikler'],
-  ['themes', 'Temalar'],
   ['occasions', 'Kutlama türleri'],
   ['extras', 'Fiyat ekstraları'],
   ['specialDayTypes', 'Özel gün türleri'],
@@ -29,13 +28,10 @@ const OPTION_LABELS: [keyof OptionLists, string][] = [
   ['stockUnits', 'Stok birimleri'],
 ]
 
-const PALETTE = ['#d48a96', '#c79a5b', '#8fae8b', '#9a8cc2', '#8a9bb0', '#d9a066', '#6fa3a8', '#b47ab0', '#a3a35c', '#c46f5c']
-
 function pick(s: Settings): Draft {
   return {
     businessName: s.businessName,
     weekdayCapacity: s.weekdayCapacity,
-    productTypes: s.productTypes,
     options: s.options,
     reminderDays: s.reminderDays,
   }
@@ -45,7 +41,6 @@ export default function SettingsPage() {
   const settings = useSettings()
   const toast = useToast()
   const [draft, setDraft] = useState<Draft>()
-  const [openType, setOpenType] = useState<string | null>(null)
 
   useEffect(() => {
     if (settings && !draft) setDraft(pick(settings))
@@ -54,27 +49,10 @@ export default function SettingsPage() {
   if (!settings || !draft) return null
   const dirty = JSON.stringify(pick(settings)) !== JSON.stringify(draft)
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft({ ...draft, [k]: v })
-  const setType = (key: string, patch: Partial<ProductType>) =>
-    set(
-      'productTypes',
-      draft.productTypes.map((p) => (p.key === key ? { ...p, ...patch } : p)),
-    )
 
   const save = async () => {
-    const capChanged = JSON.stringify(draft.weekdayCapacity) !== JSON.stringify(settings.weekdayCapacity)
     await updateSettings(draft)
     toast('Ayarlar kaydedildi')
-    if (capChanged) {
-      const ok = await ask('Günlük kapasiteler değişti. Açık siparişlerin işleri yeni kapasitelere göre yeniden yerleştirilsin mi? (Elle taşıdığınız adımlar yerinde kalır.)', {
-        confirmLabel: 'Yeniden yerleştir',
-        danger: false,
-      })
-      if (ok) {
-        const r = await replanOrders(null)
-        if (r.late.length) await tell(`${r.late.length} sipariş teslim tarihine kapasiteye sığmıyor. Üretim planı ekranında kırmızı görünürler.`)
-        else toast('İşler yeniden yerleştirildi')
-      }
-    }
   }
 
   return (
@@ -94,46 +72,27 @@ export default function SettingsPage() {
           <Field label="İşletme adı">
             <Input value={draft.businessName} onChange={(e) => set('businessName', e.target.value)} />
           </Field>
-          <div className="mt-4">
-            <div className="mb-2 text-[13px] font-medium text-muted">Renk teması</div>
-            <div className="flex flex-wrap gap-2">
-              {ACCENTS.map((a) => (
-                <button
-                  type="button"
-                  key={a.key}
-                  onClick={() => updateSettings({ accent: a.key })}
-                  className={cx(
-                    'flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm',
-                    settings.accent === a.key ? 'border-ink' : 'border-line',
-                  )}
-                >
-                  <span className="h-4 w-4 rounded-full" style={{ background: a.accent }} />
-                  {a.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <BrandEditor settings={settings} />
           <Field label="Özel günleri kaç gün önceden hatırlat?" className="mt-4">
-            <NumberInput value={draft.reminderDays} onChange={(v) => set('reminderDays', v ?? 21)} min={1} max={90} />
+            <NumberInput integer value={draft.reminderDays} onChange={(v) => set('reminderDays', v ?? 21)} />
           </Field>
         </Card>
 
         <Card className="p-4">
-          <h2 className="font-display text-lg">Günlük kapasite (çalışma saati)</h2>
+          <h2 className="font-display text-lg">Günlük kapasite (sipariş sayısı)</h2>
           <p className="mb-3 text-sm text-muted">
-            Haftanın her günü üretime ayırabildiğiniz saat. İş adımları bu saatlere göre günlere yayılır; 0 saat olan günler kapalıdır
-            ve plana iş konmaz. Tek tek günleri Takvim’den, tatil ve izin aralıklarını aşağıdaki “Kapalı günler” bölümünden
-            değiştirebilirsiniz.
+            Aynı gün teslim edebileceğiniz sipariş sayısı. Takvimde: hiç sipariş yoksa <b>Uygun</b>, kapasiteden azsa <b>Yoğun</b>,
+            kapasite kadarsa <b>Dolu</b>, fazlaysa <b>Kapasite aşıldı</b>. Kapasite dolu olsa da sipariş girebilirsiniz; yalnızca uyarı
+            verilir. 0 olan gün kapalıdır.
           </p>
           <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
             {WEEKDAYS.map((d, i) => (
               <label key={d} className="text-center">
                 <span className="mb-1 block text-xs text-muted">{d.slice(0, 3)}</span>
                 <NumberInput
+                  integer
                   className="text-center"
                   value={draft.weekdayCapacity[i]}
-                  min={0}
-                  step={0.5}
                   onChange={(v) => {
                     const next = [...draft.weekdayCapacity]
                     next[i] = v ?? 0
@@ -147,182 +106,11 @@ export default function SettingsPage() {
       </div>
 
       <Card className="mt-4">
-        <CardHeader
-          title="Ürün türleri, fiyatlar ve iş adımları (rota)"
-          action={
-            <Button
-              size="sm"
-              variant="soft"
-              icon={<Plus size={16} />}
-              onClick={() => {
-                const key = 'u' + uid().slice(0, 6)
-                set('productTypes', [
-                  ...draft.productTypes,
-                  {
-                    key,
-                    label: 'Yeni ürün',
-                    unit: 'adet',
-                    unitPrice: 0,
-                    color: PALETTE[draft.productTypes.length % PALETTE.length],
-                    hasTiers: false,
-                    tasks: [{ name: 'Hazırlık', offset: 0, fixedMin: 60, perUnitMin: 0 }],
-                  },
-                ])
-                setOpenType(key)
-              }}
-            >
-              Ürün ekle
-            </Button>
-          }
-        />
-        <p className="-mt-1 px-4 pb-3 text-sm text-muted">
-          Her ürünün iş adımları sırayla yapılır. Süre = sabit dakika + kişi/adet başına dakika. Planlayıcı adımları teslimden geriye
-          doğru, “en geç kaç gün önce bitsin” sınırına ve günlük kapasiteye göre yerleştirir; bir adım bir güne sığmazsa önceki günlere
-          bölünür. 0 gün = teslim günü yapılabilir.
-        </p>
-        <div className="divide-y divide-line border-t border-line">
-          {draft.productTypes.map((p) => (
-            <div key={p.key}>
-              <button
-                type="button"
-                onClick={() => setOpenType(openType === p.key ? null : p.key)}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-stone-50"
-              >
-                <span className="h-3.5 w-3.5 rounded-full" style={{ background: p.color }} />
-                <span className="flex-1 font-medium">{p.label}</span>
-                <span className="text-sm text-muted tabular-nums">
-                  {p.unitPrice} ₺/{p.unit} · {p.tasks.length} adım
-                </span>
-              </button>
-              {openType === p.key && (
-                <div className="space-y-4 bg-stone-50/60 px-4 pt-1 pb-4">
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                    <Field label="Ad">
-                      <Input value={p.label} onChange={(e) => setType(p.key, { label: e.target.value })} />
-                    </Field>
-                    <Field label="Fiyat birimi">
-                      <Select value={p.unit} onChange={(e) => setType(p.key, { unit: e.target.value as ProductType['unit'] })}>
-                        <option value="kişi">Kişi başı</option>
-                        <option value="adet">Adet</option>
-                      </Select>
-                    </Field>
-                    <Field label={`Baz fiyat (₺/${p.unit})`}>
-                      <NumberInput value={p.unitPrice} onChange={(v) => setType(p.key, { unitPrice: v ?? 0 })} />
-                    </Field>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-4">
-                    <div className="flex gap-1.5">
-                      {PALETTE.map((c) => (
-                        <button
-                          type="button"
-                          key={c}
-                          aria-label={`Renk ${c}`}
-                          onClick={() => setType(p.key, { color: c })}
-                          className={cx('h-7 w-7 rounded-full border-2', p.color === c ? 'border-ink' : 'border-white')}
-                          style={{ background: c }}
-                        />
-                      ))}
-                    </div>
-                    <Toggle checked={p.hasTiers} onChange={(v) => setType(p.key, { hasTiers: v })} label="Kat sayısı sorulsun" />
-                  </div>
-
-                  <div>
-                    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="text-[13px] font-medium text-muted">İş adımları (sırayla)</span>
-                      <StepTotal tasks={p.tasks} unit={p.unit} />
-                    </div>
-                    <div className="space-y-2">
-                      {p.tasks.map((t, i) => (
-                        <div key={i} className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-white p-2">
-                          <span className="w-5 text-center text-sm text-muted">{i + 1}</span>
-                          <Input
-                            className="h-10 min-w-[140px] flex-1"
-                            value={t.name}
-                            onChange={(e) => setType(p.key, { tasks: p.tasks.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })}
-                          />
-                          <label className="flex items-center gap-1 text-sm text-muted">
-                            <NumberInput
-                              className="h-10 w-16 text-center"
-                              value={t.offset}
-                              min={0}
-                              onChange={(v) => setType(p.key, { tasks: p.tasks.map((x, j) => (j === i ? { ...x, offset: v ?? 0 } : x)) })}
-                            />
-                            gün önce bitsin
-                          </label>
-                          <label className="flex items-center gap-1 text-sm text-muted">
-                            <NumberInput
-                              className="h-10 w-16 text-center"
-                              value={t.fixedMin}
-                              min={0}
-                              step={5}
-                              onChange={(v) => setType(p.key, { tasks: p.tasks.map((x, j) => (j === i ? { ...x, fixedMin: Math.max(0, v ?? 0) } : x)) })}
-                            />
-                            dk +
-                          </label>
-                          <label className="flex items-center gap-1 text-sm text-muted">
-                            <NumberInput
-                              className="h-10 w-16 text-center"
-                              value={t.perUnitMin}
-                              min={0}
-                              step={0.5}
-                              onChange={(v) => setType(p.key, { tasks: p.tasks.map((x, j) => (j === i ? { ...x, perUnitMin: Math.max(0, v ?? 0) } : x)) })}
-                            />
-                            dk / {p.unit}
-                          </label>
-                          <div className="flex">
-                            <IconButton
-                              label="Yukarı"
-                              disabled={i === 0}
-                              onClick={() => {
-                                const ts = [...p.tasks]
-                                ;[ts[i - 1], ts[i]] = [ts[i], ts[i - 1]]
-                                setType(p.key, { tasks: ts })
-                              }}
-                            >
-                              <ArrowUp size={16} />
-                            </IconButton>
-                            <IconButton
-                              label="Aşağı"
-                              disabled={i === p.tasks.length - 1}
-                              onClick={() => {
-                                const ts = [...p.tasks]
-                                ;[ts[i + 1], ts[i]] = [ts[i], ts[i + 1]]
-                                setType(p.key, { tasks: ts })
-                              }}
-                            >
-                              <ArrowDown size={16} />
-                            </IconButton>
-                            <IconButton label="Sil" onClick={() => setType(p.key, { tasks: p.tasks.filter((_, j) => j !== i) })}>
-                              <Trash2 size={16} className="text-red-600" />
-                            </IconButton>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-2 flex flex-wrap justify-between gap-2">
-                      <Button
-                        size="sm"
-                        icon={<Plus size={15} />}
-                        onClick={() => setType(p.key, { tasks: [...p.tasks, { name: '', offset: 0, fixedMin: 30, perUnitMin: 0 }] })}
-                      >
-                        Adım ekle
-                      </Button>
-                      <DeleteType
-                        productKey={p.key}
-                        onDelete={() => set('productTypes', draft.productTypes.filter((x) => x.key !== p.key))}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <Card className="mt-4">
         <CardHeader title="Seçenek listeleri" />
-        <p className="-mt-1 px-4 pb-3 text-sm text-muted">Formlarda hızlı seçim için önerilen değerler. Formlarda yine de serbest yazabilirsiniz.</p>
+        <p className="-mt-1 px-4 pb-3 text-sm text-muted">
+          Formlardaki seçenekler. Kek ve krema cinsi yalnızca bu listeden seçilir; iç dolguda listede olmayan bir içerik de
+          eklenebilir. Ürün türleri ve fiyatlar <b>Fiyat listesi</b> sayfasındadır.
+        </p>
         <div className="grid gap-4 border-t border-line p-4 md:grid-cols-2">
           {OPTION_LABELS.map(([key, label]) => (
             <ListEditor key={key} label={label} values={draft.options[key]} onChange={(v) => set('options', { ...draft.options, [key]: v })} />
@@ -351,19 +139,103 @@ export default function SettingsPage() {
   )
 }
 
-function DeleteType({ productKey, onDelete }: { productKey: string; onDelete: () => void }) {
-  const used = useLiveQuery(() => db.orders.where('productType').equals(productKey).count(), [productKey])
+/** Logo yükleme ve renk teması. Logo yüklenince baskın rengi tema rengi olur. */
+function BrandEditor({ settings }: { settings: Settings }) {
+  const toast = useToast()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const current = resolveAccent(settings)
+  const custom = settings.accentColor ? paletteFromHex(settings.accentColor) : null
+
+  const onLogo = async (file: File) => {
+    setBusy(true)
+    try {
+      const logo = await processLogo(file)
+      const color = await dominantColor(logo)
+      await updateSettings({ logo, accent: 'ozel', accentColor: color })
+      toast('Logo yüklendi; tema renkleri logodan alındı')
+    } catch (e) {
+      await tell((e as Error).message || 'Logo okunamadı')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <Button
-      size="sm"
-      variant="danger"
-      icon={<Trash2 size={15} />}
-      disabled={!!used}
-      title={used ? `${used} siparişte kullanılıyor` : undefined}
-      onClick={async () => (await ask('Bu ürün türü silinsin mi?', { confirmLabel: 'Sil' })) && onDelete()}
-    >
-      {used ? `Siparişlerde kullanılıyor (${used})` : 'Ürün türünü sil'}
-    </Button>
+    <>
+      <div className="mt-4">
+        <div className="mb-2 text-[13px] font-medium text-muted">Logo</div>
+        <div className="flex flex-wrap items-center gap-3">
+          {settings.logo ? (
+            <img src={settings.logo} alt="Logo" className="h-16 w-16 rounded-full bg-white object-contain ring-1 ring-line" />
+          ) : (
+            <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-line text-muted">
+              <ImageUp size={22} />
+            </div>
+          )}
+          <Button icon={<ImageUp size={16} />} disabled={busy} onClick={() => fileRef.current?.click()}>
+            {busy ? 'Yükleniyor…' : settings.logo ? 'Logoyu değiştir' : 'Logo yükle'}
+          </Button>
+          {settings.logo && (
+            <Button variant="ghost" icon={<Trash2 size={15} />} onClick={() => updateSettings({ logo: undefined })}>
+              Kaldır
+            </Button>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            aria-label="Logo dosyası"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              if (f) onLogo(f)
+            }}
+          />
+        </div>
+        <p className="mt-1.5 text-xs text-muted">Menüde ve yazdırılan sipariş fişinde görünür. Yüklenince tema rengi logodan otomatik seçilir.</p>
+      </div>
+      <div className="mt-4">
+        <div className="mb-2 text-[13px] font-medium text-muted">Renk teması</div>
+        <div className="flex flex-wrap gap-2">
+          {custom && (
+            <button
+              type="button"
+              onClick={() => updateSettings({ accent: 'ozel' })}
+              className={cx(
+                'flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm',
+                settings.accent === 'ozel' ? 'border-ink' : 'border-line',
+              )}
+            >
+              <span className="h-4 w-4 rounded-full" style={{ background: custom.accent }} />
+              {settings.logo ? 'Logodan' : 'Özel'}
+            </button>
+          )}
+          {ACCENTS.map((a) => (
+            <button
+              type="button"
+              key={a.key}
+              onClick={() => updateSettings({ accent: a.key })}
+              className={cx('flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm', settings.accent === a.key ? 'border-ink' : 'border-line')}
+            >
+              <span className="h-4 w-4 rounded-full" style={{ background: a.accent }} />
+              {a.label}
+            </button>
+          ))}
+          <label className="flex cursor-pointer items-center gap-2 rounded-full border border-line px-3 py-1.5 text-sm">
+            <input
+              type="color"
+              className="h-5 w-6 cursor-pointer border-0 bg-transparent p-0"
+              value={settings.accentColor ?? current.accent}
+              onChange={(e) => updateSettings({ accent: 'ozel', accentColor: e.target.value })}
+              aria-label="Özel renk seç"
+            />
+            Renk seç
+          </label>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -413,23 +285,13 @@ function ListEditor({ label, values, onChange }: { label: string; values: string
   )
 }
 
-function StepTotal({ tasks, unit }: { tasks: TaskTemplate[]; unit: string }) {
-  const sample = unit === 'kişi' ? 20 : 24
-  const total = tasks.reduce((a, t) => a + stepMinutes(t, sample), 0)
-  return (
-    <span className="text-xs text-muted">
-      Örnek: {sample} {unit} için toplam <b className="text-ink">{fmtMin(total)}</b>
-    </span>
-  )
-}
-
 /** Tatil / izin gibi kapalı gün aralıkları ve güne özel kapasiteler */
 function ClosuresCard({ settings }: { settings: Settings }) {
   const toast = useToast()
   const t = today()
   const [from, setFrom] = useState(t)
   const [to, setTo] = useState(t)
-  const [hours, setHours] = useState<number | undefined>(0)
+  const [count, setCount] = useState<number | undefined>(0)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const list = Object.entries(settings.capacityOverrides)
@@ -443,28 +305,14 @@ function ClosuresCard({ settings }: { settings: Settings }) {
     return out
   }
 
-  const offerReplan = async (dates: string[]) => {
-    const ids = await ordersWithWorkOn(dates)
-    if (!ids.length) return
-    const ok = await ask(`Bu günlerde işi planlı ${ids.length} sipariş var. İşleri yeni kapasiteye göre yeniden yerleştirilsin mi?`, {
-      confirmLabel: 'Yeniden yerleştir',
-      danger: false,
-    })
-    if (!ok) return
-    const r = await replanOrders(ids, { includeManual: true })
-    if (r.late.length) await tell(`${r.late.length} sipariş teslim tarihine kapasiteye sığmıyor. Üretim planı ekranında kırmızı görünürler; teslim tarihini ileri alabilirsiniz.`)
-    else toast('İşler yeniden yerleştirildi')
-  }
-
   const add = async () => {
-    if (hours === undefined) return
+    if (count === undefined) return
     setBusy(true)
     try {
       const dates = range(from, to)
-      await setDayCapacity(dates, hours, note)
-      toast(hours === 0 ? `${dates.length} gün kapatıldı` : `${dates.length} günün kapasitesi ${hours} saat oldu`)
+      await setDayCapacity(dates, count, note)
+      toast(count === 0 ? `${dates.length} gün kapatıldı` : `${dates.length} günün kapasitesi ${count} sipariş oldu`)
       setNote('')
-      await offerReplan(dates)
     } finally {
       setBusy(false)
     }
@@ -474,8 +322,8 @@ function ClosuresCard({ settings }: { settings: Settings }) {
     <Card className="mt-4 p-4">
       <h2 className="font-display text-lg">Kapalı günler ve özel kapasiteler</h2>
       <p className="mt-1 mb-3 text-sm text-muted">
-        Tatil, bayram, izin ya da yoğun bir fuar günü gibi tarihler için kapasiteyi sıfırlayın veya değiştirin. Bu günlere iş
-        yerleştirilmez; işler önceki açık günlere, sığmazsa ileri tarihlere kayar.
+        Tatil, bayram ya da izin günleri için kapasiteyi 0 yapın (gün kapanır) veya o günlere özel bir sipariş sayısı verin.
+        Kapalı günler takvimde taralı görünür; sipariş girerken uyarı verilir.
       </p>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-[1fr_1fr_110px_1.4fr_auto]">
         <Field label="Başlangıç">
@@ -484,15 +332,15 @@ function ClosuresCard({ settings }: { settings: Settings }) {
         <Field label="Bitiş">
           <Input type="date" value={to} onChange={(e) => e.target.value && setTo(e.target.value)} />
         </Field>
-        <Field label="Kapasite (sa)">
-          <NumberInput value={hours} onChange={setHours} min={0} step={0.5} />
+        <Field label="Kapasite">
+          <NumberInput integer value={count} onChange={setCount} />
         </Field>
         <Field label="Not">
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Örn. Bayram tatili" />
         </Field>
         <div className="col-span-2 flex items-end md:col-span-1">
-          <Button variant="primary" className="w-full" disabled={busy || hours === undefined} onClick={add}>
-            {hours === 0 ? 'Kapat' : 'Uygula'}
+          <Button variant="primary" className="w-full" disabled={busy || count === undefined} onClick={add}>
+            {count === 0 ? 'Kapat' : 'Uygula'}
           </Button>
         </div>
       </div>
@@ -504,7 +352,7 @@ function ClosuresCard({ settings }: { settings: Settings }) {
                 {fmtDate(d, 'd MMMM yyyy, EEEE')}
                 {settings.dayNotes?.[d] && <span className="text-muted"> · {settings.dayNotes[d]}</span>}
               </span>
-              <span className={cx('tabular-nums', h === 0 ? 'text-stone-500' : 'text-ink')}>{h === 0 ? 'Kapalı' : `${h} sa`}</span>
+              <span className={cx('tabular-nums', h === 0 ? 'text-stone-500' : 'text-ink')}>{h === 0 ? 'Kapalı' : `${h} sipariş`}</span>
               <IconButton
                 label="Kaldır"
                 onClick={async () => {
@@ -570,8 +418,8 @@ function DataCard() {
           onClick={async () => {
             setBusy(true)
             try {
-              downloadBlob(await exportBackup(), `pastane-yedek-${today()}.json`)
-              toast('Yedek indirildi')
+              const ok = await saveFile(await exportBackup(), `luma-yedek-${today()}.json`)
+              if (ok) toast('Yedek kaydedildi')
             } finally {
               setBusy(false)
             }

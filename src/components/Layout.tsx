@@ -3,19 +3,22 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   CalendarDays,
   ChartColumn,
-  ChartGantt,
   ClipboardList,
+  EyeOff,
   House,
   Images,
   Menu,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Settings as SettingsIcon,
+  Tags,
   Users,
   X,
 } from 'lucide-react'
 import { useSettings } from '../lib/hooks'
-import { ACCENTS } from '../db/defaults'
+import { resolveAccent } from '../lib/color'
 import { cx } from './ui'
 import { ErrorBoundary } from './ErrorBoundary'
 
@@ -23,20 +26,53 @@ const NAV: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: '/', label: 'Ana sayfa', icon: <House size={20} />, end: true },
   { to: '/siparisler', label: 'Siparişler', icon: <ClipboardList size={20} /> },
   { to: '/takvim', label: 'Takvim', icon: <CalendarDays size={20} /> },
-  { to: '/planlama', label: 'Üretim planı', icon: <ChartGantt size={20} /> },
   { to: '/musteriler', label: 'Müşteriler', icon: <Users size={20} /> },
+  { to: '/fiyat-listesi', label: 'Fiyat listesi', icon: <Tags size={20} /> },
   { to: '/katalog', label: 'Katalog', icon: <Images size={20} /> },
   { to: '/stok', label: 'Stok', icon: <Package size={20} /> },
   { to: '/raporlar', label: 'Raporlar', icon: <ChartColumn size={20} /> },
   { to: '/ayarlar', label: 'Ayarlar', icon: <SettingsIcon size={20} /> },
 ]
+const navItem = (to: string) => NAV.find((n) => n.to === to)!
 
-function Logo({ name }: { name: string }) {
+/** Yan menü görünümü (tablet / masaüstü) */
+type MenuMode = 'full' | 'mini' | 'hidden'
+const MENU_KEY = 'luma-menu'
+
+function readMenuMode(): MenuMode {
+  try {
+    const v = localStorage.getItem(MENU_KEY)
+    return v === 'mini' || v === 'hidden' ? v : 'full'
+  } catch {
+    return 'full'
+  }
+}
+
+function BrandMark({ name, logo, size = 36 }: { name: string; logo?: string; size?: number }) {
+  if (logo) {
+    return (
+      <img
+        src={logo}
+        alt={name}
+        style={{ width: size, height: size }}
+        className="shrink-0 rounded-full bg-white object-contain ring-1 ring-line"
+      />
+    )
+  }
   return (
-    <div className="flex items-center gap-2.5">
-      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent font-display text-lg text-white">
-        {name.trim()[0]?.toLocaleUpperCase('tr-TR') ?? 'P'}
-      </div>
+    <div
+      style={{ width: size, height: size }}
+      className="flex shrink-0 items-center justify-center rounded-full bg-accent font-display text-lg text-white"
+    >
+      {name.trim()[0]?.toLocaleUpperCase('tr-TR') ?? 'P'}
+    </div>
+  )
+}
+
+function Logo({ name, logo }: { name: string; logo?: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <BrandMark name={name} logo={logo} />
       <div className="min-w-0">
         <div className="truncate font-display text-lg leading-tight text-ink">{name}</div>
         <div className="text-[11px] tracking-wide text-muted uppercase">Sipariş atölyesi</div>
@@ -48,64 +84,128 @@ function Logo({ name }: { name: string }) {
 export default function Layout() {
   const settings = useSettings()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [mode, setModeState] = useState<MenuMode>(readMenuMode)
   const loc = useLocation()
   const nav = useNavigate()
+
+  const setMode = (m: MenuMode) => {
+    setModeState(m)
+    try {
+      localStorage.setItem(MENU_KEY, m)
+    } catch {
+      /* tarayıcı depolaması yoksa yalnızca bu oturumda */
+    }
+  }
 
   useEffect(() => setMenuOpen(false), [loc.pathname])
 
   useEffect(() => {
-    const a = ACCENTS.find((x) => x.key === settings?.accent) ?? ACCENTS[0]
+    const a = resolveAccent(settings)
     const r = document.documentElement.style
     r.setProperty('--accent', a.accent)
     r.setProperty('--accent-soft', a.soft)
     r.setProperty('--accent-ink', a.ink)
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#faf6f2')
-  }, [settings?.accent])
+  }, [settings?.accent, settings?.accentColor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [loc.pathname])
 
   const name = settings?.businessName || 'Pastane'
+  const logo = settings?.logo
+  const mini = mode === 'mini'
 
   return (
     <div className="min-h-dvh md:flex">
-      {/* Tablet / masaüstü yan menü */}
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-line bg-white/70 px-3 py-5 md:flex">
-        <div className="px-2 pb-5">
-          <Logo name={name} />
-        </div>
+      {/* Tablet / masaüstü yan menü: tam, küçük (yalnızca simgeler) ya da gizli */}
+      {mode !== 'hidden' && (
+        <aside
+          className={cx(
+            'sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-line bg-white/70 py-5 transition-[width] md:flex',
+            mini ? 'w-[76px] items-center px-2' : 'w-60 px-3',
+          )}
+        >
+          <div className={cx('pb-5', mini ? '' : 'px-2')}>
+            {mini ? <BrandMark name={name} logo={logo} size={40} /> : <Logo name={name} logo={logo} />}
+          </div>
+          <button
+            type="button"
+            onClick={() => nav('/siparisler/yeni')}
+            aria-label="Yeni sipariş"
+            title={mini ? 'Yeni sipariş' : undefined}
+            className={cx(
+              'mb-4 flex h-11 items-center justify-center gap-2 rounded-xl bg-accent font-medium text-white shadow-sm hover:brightness-95',
+              mini && 'w-11',
+            )}
+          >
+            <Plus size={18} /> {!mini && 'Yeni sipariş'}
+          </button>
+          <nav className={cx('flex flex-col gap-0.5', mini && 'items-center')}>
+            {NAV.map((n) => (
+              <NavLink
+                key={n.to}
+                to={n.to}
+                end={n.end}
+                aria-label={n.label}
+                title={mini ? n.label : undefined}
+                className={({ isActive }) =>
+                  cx(
+                    'flex items-center gap-3 rounded-xl text-[15px] transition',
+                    mini ? 'h-11 w-11 justify-center' : 'px-3 py-2.5',
+                    isActive ? 'bg-accent-soft font-medium text-accent-ink' : 'text-ink/80 hover:bg-stone-100',
+                  )
+                }
+              >
+                {n.icon}
+                {!mini && n.label}
+              </NavLink>
+            ))}
+          </nav>
+          <div className={cx('mt-auto flex gap-1 pt-4', mini ? 'flex-col items-center' : 'px-1')}>
+            <button
+              type="button"
+              onClick={() => setMode(mini ? 'full' : 'mini')}
+              title={mini ? 'Menüyü genişlet' : 'Menüyü küçült'}
+              className={cx(
+                'flex h-10 items-center gap-2 rounded-xl text-sm text-muted hover:bg-stone-100 hover:text-ink',
+                mini ? 'w-10 justify-center' : 'flex-1 px-3',
+              )}
+            >
+              {mini ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+              {!mini && 'Küçült'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('hidden')}
+              title="Menüyü gizle"
+              className={cx(
+                'flex h-10 items-center gap-2 rounded-xl text-sm text-muted hover:bg-stone-100 hover:text-ink',
+                mini ? 'w-10 justify-center' : 'flex-1 px-3',
+              )}
+            >
+              <EyeOff size={18} />
+              {!mini && 'Gizle'}
+            </button>
+          </div>
+        </aside>
+      )}
+      {mode === 'hidden' && (
         <button
           type="button"
-          onClick={() => nav('/siparisler/yeni')}
-          className="mb-4 flex h-11 items-center justify-center gap-2 rounded-xl bg-accent font-medium text-white shadow-sm hover:brightness-95"
+          onClick={() => setMode('full')}
+          title="Menüyü göster"
+          aria-label="Menüyü göster"
+          className="fixed top-4 left-4 z-40 hidden h-11 w-11 items-center justify-center rounded-xl border border-line bg-white text-ink shadow-sm hover:bg-stone-50 md:flex"
         >
-          <Plus size={18} /> Yeni sipariş
+          <PanelLeftOpen size={20} />
         </button>
-        <nav className="flex flex-col gap-0.5">
-          {NAV.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              end={n.end}
-              className={({ isActive }) =>
-                cx(
-                  'flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] transition',
-                  isActive ? 'bg-accent-soft font-medium text-accent-ink' : 'text-ink/80 hover:bg-stone-100',
-                )
-              }
-            >
-              {n.icon}
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
+      )}
 
       {/* Telefon üst çubuk */}
       <header className="pt-safe sticky top-0 z-30 border-b border-line bg-cream/90 backdrop-blur md:hidden">
         <div className="flex h-14 items-center justify-between px-4">
-          <Logo name={name} />
+          <Logo name={name} logo={logo} />
           <button
             type="button"
             aria-label="Menü"
@@ -117,7 +217,7 @@ export default function Layout() {
         </div>
       </header>
 
-      <main className="min-w-0 flex-1 px-4 pt-4 pb-28 md:px-8 md:pt-7 md:pb-10">
+      <main className={cx('min-w-0 flex-1 px-4 pt-4 pb-28 md:px-8 md:pt-7 md:pb-10', mode === 'hidden' && 'md:pl-20')}>
         <div className="mx-auto max-w-6xl">
           <ErrorBoundary resetKey={loc.pathname}>
             <Outlet />
@@ -128,7 +228,7 @@ export default function Layout() {
       {/* Telefon alt menü */}
       <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur md:hidden">
         <div className="mx-auto grid h-16 max-w-md grid-cols-5 items-center">
-          {[NAV[0], NAV[1]].map((n) => (
+          {[navItem('/'), navItem('/siparisler')].map((n) => (
             <BottomLink key={n.to} {...n} />
           ))}
           <div className="flex justify-center">
@@ -141,7 +241,7 @@ export default function Layout() {
               <Plus size={26} />
             </button>
           </div>
-          {[NAV[2], NAV[4]].map((n) => (
+          {[navItem('/takvim'), navItem('/musteriler')].map((n) => (
             <BottomLink key={n.to} {...n} />
           ))}
         </div>
@@ -153,7 +253,7 @@ export default function Layout() {
           <div className="absolute inset-0 bg-ink/40" onClick={() => setMenuOpen(false)} />
           <div className="animate-sheet pb-safe absolute inset-x-0 bottom-0 rounded-t-3xl bg-white p-4">
             <div className="mb-3 flex items-center justify-between">
-              <Logo name={name} />
+              <Logo name={name} logo={logo} />
               <button
                 type="button"
                 aria-label="Kapat"

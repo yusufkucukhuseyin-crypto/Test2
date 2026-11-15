@@ -1,19 +1,14 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle,
-  CalendarCheck,
   Camera,
   Check,
-  ChartGantt,
   Copy,
   MapPin,
-  MessageCircle,
   Pencil,
-  Phone,
-  Plus,
-  RotateCcw,
+  Printer,
   Store,
   Trash2,
 } from 'lucide-react'
@@ -22,23 +17,16 @@ import {
   addImages,
   addPayment,
   addStockMove,
-  addTask,
   deleteOrder,
   deletePayment,
   deleteStockMove,
-  moveTask,
-  regenerateTasks,
-  replanOrders,
-  setTaskMinutes,
   setOrderStatus,
 } from '../db/actions'
 import type { ImageKind, Order, OrderImage, PaymentKind, Settings } from '../db/types'
-import { STATUS, STATUS_ORDER, depositTotal, orderSummary, paidTotal, productTypeOf } from '../lib/domain'
-import { fmtDate, fmtDateShort, money, num, relDay, telLink, today, waLink } from '../lib/format'
+import { STATUS, depositTotal, orderSummary, paidTotal, productTypeOf } from '../lib/domain'
+import { fmtDate, money, num, relDay, today } from '../lib/format'
 import { useSettings } from '../lib/hooks'
-import { IMAGE_KINDS, StatusBadge, Thumb } from '../components/shared'
-import { OrderPlanStatus } from '../components/PlanHint'
-import { allocDays, fmtMin, taskIssue } from '../lib/schedule'
+import { ContactInfo, IMAGE_KINDS, StatusBadge, Thumb } from '../components/shared'
 import { ImageViewer } from '../components/ImageViewer'
 import {
   Badge,
@@ -55,13 +43,12 @@ import {
   PageHeader,
   Select,
   Tabs,
-  Toggle,
   cx,
   useToast,
 } from '../components/ui'
-import { ask, tell } from '../components/confirm'
+import { ask } from '../components/confirm'
 
-type Tab = 'detay' | 'tasarim' | 'odeme' | 'uretim' | 'maliyet'
+type Tab = 'detay' | 'tasarim' | 'odeme' | 'maliyet'
 
 export default function OrderDetail() {
   const { id = '' } = useParams()
@@ -73,14 +60,13 @@ export default function OrderDetail() {
   const data = useLiveQuery(async () => {
     const order = await db.orders.get(id)
     if (!order) return { order: null }
-    const [customer, payments, images, tasks, moves] = await Promise.all([
+    const [customer, payments, images, moves] = await Promise.all([
       db.customers.get(order.customerId),
       db.payments.where('orderId').equals(id).sortBy('date'),
       db.images.where('orderId').equals(id).sortBy('createdAt'),
-      db.tasks.where('orderId').equals(id).toArray(),
       db.stockMoves.where('orderId').equals(id).toArray(),
     ])
-    return { order, customer, payments, images, tasks, moves }
+    return { order, customer, payments, images, moves }
   }, [id])
 
   if (!settings || !data) return null
@@ -93,14 +79,14 @@ export default function OrderDetail() {
       />
     )
 
-  const { order, customer, payments = [], images = [], tasks = [], moves = [] } = data
+  const { order, customer, payments = [], images = [], moves = [] } = data
   const pt = productTypeOf(settings, order.productType)
   const paid = paidTotal(payments)
   const balance = order.agreedPrice - paid
   const cost = moves.reduce((s, m) => s + m.quantity * m.unitCost, 0)
 
   const remove = async () => {
-    if (!(await ask(`#${order.no} numaralı sipariş; görselleri, ödemeleri ve üretim adımlarıyla birlikte silinecek.`, { confirmLabel: 'Siparişi sil' }))) return
+    if (!(await ask(`#${order.no} numaralı sipariş; görselleri ve ödemeleriyle birlikte silinecek.`, { confirmLabel: 'Siparişi sil' }))) return
     await deleteOrder(order.id)
     toast('Sipariş silindi')
     nav('/siparisler', { replace: true })
@@ -131,6 +117,9 @@ export default function OrderDetail() {
         }
         actions={
           <>
+            <LinkButton to={`/siparisler/${order.id}/yazdir`} icon={<Printer size={16} />} size="sm" variant="primary">
+              Yazdır
+            </LinkButton>
             <LinkButton to={`/siparisler/${order.id}/duzenle`} icon={<Pencil size={16} />} size="sm">
               Düzenle
             </LinkButton>
@@ -153,35 +142,28 @@ export default function OrderDetail() {
       {/* Durum adımları */}
       <Card className="mb-4 p-3">
         <div className="no-scrollbar flex items-center gap-1 overflow-x-auto">
-          {STATUS_ORDER.map((s, i) => {
-            const idx = STATUS_ORDER.indexOf(order.status)
-            const done = order.status !== 'iptal' && i <= idx
-            return (
-              <button
-                type="button"
-                key={s}
-                onClick={() => changeStatus(s)}
-                className={cx(
-                  'flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition',
-                  order.status === s ? 'bg-accent text-white' : done ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-stone-100',
-                )}
-              >
-                {done && order.status !== s ? <Check size={14} /> : <span className="text-xs">{i + 1}</span>}
-                {STATUS[s].label}
-              </button>
-            )
-          })}
-          <span className="mx-1 h-5 w-px shrink-0 bg-line" />
-          <button
-            type="button"
-            onClick={() => changeStatus(order.status === 'iptal' ? 'teklif' : 'iptal')}
-            className={cx(
-              'shrink-0 rounded-full px-3 py-1.5 text-sm',
-              order.status === 'iptal' ? 'bg-red-600 text-white' : 'text-red-600 hover:bg-red-50',
-            )}
-          >
-            {order.status === 'iptal' ? 'İptal edildi (geri al)' : 'İptal et'}
-          </button>
+          <span className="mr-1 shrink-0 text-sm text-muted">Durum:</span>
+          {(['onaylandi', 'teslim', 'iptal'] as const).map((s) => (
+            <button
+              type="button"
+              key={s}
+              aria-pressed={order.status === s}
+              onClick={() => order.status !== s && changeStatus(s)}
+              className={cx(
+                'flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition',
+                order.status === s
+                  ? s === 'iptal'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-accent text-white'
+                  : s === 'iptal'
+                    ? 'text-red-600 hover:bg-red-50'
+                    : 'text-muted hover:bg-stone-100',
+              )}
+            >
+              {order.status === s && <Check size={14} />}
+              {STATUS[s].label}
+            </button>
+          ))}
         </div>
       </Card>
 
@@ -196,7 +178,6 @@ export default function OrderDetail() {
           <div className="text-sm text-muted">
             {relDay(order.deliveryDate)} · {order.deliveryMethod === 'adres' ? 'Adrese teslim' : 'Gel-al'}
           </div>
-          <OrderPlanStatus order={order} tasks={tasks} />
         </Card>
         <Card className="p-4">
           <div className="text-[13px] text-muted">Anlaşılan tutar</div>
@@ -224,15 +205,13 @@ export default function OrderDetail() {
           { value: 'detay', label: 'Detaylar' },
           { value: 'tasarim', label: 'Tasarım', count: images.length },
           { value: 'odeme', label: 'Ödemeler', count: payments.length },
-          { value: 'uretim', label: 'Üretim planı', count: tasks.length },
           { value: 'maliyet', label: 'Malzeme / maliyet', count: moves.length },
         ]}
       />
 
-      {tab === 'detay' && <DetailsTab order={order} customer={customer} />}
+      {tab === 'detay' && <DetailsTab order={order} customer={customer} unit={pt.unit} />}
       {tab === 'tasarim' && <DesignTab order={order} images={images} />}
       {tab === 'odeme' && <PaymentsTab order={order} payments={payments} settings={settings} balance={balance} />}
-      {tab === 'uretim' && <TasksTab order={order} tasks={tasks} />}
       {tab === 'maliyet' && <CostTab order={order} moves={moves} cost={cost} />}
     </div>
   )
@@ -240,19 +219,18 @@ export default function OrderDetail() {
 
 /* ---------------- Detaylar ---------------- */
 
-function DetailsTab({ order, customer }: { order: Order; customer?: import('../db/types').Customer }) {
+function DetailsTab({ order, customer, unit }: { order: Order; customer?: import('../db/types').Customer; unit: 'kişi' | 'adet' }) {
   const rows: [string, ReactNode][] = [
     ['Kek cinsi', order.cakeType],
     ['Krema cinsi', order.creamType],
     ['İç dolgu / içerikler', order.filling],
-    ['Tema', order.theme],
     ['Pasta üstü yazı', order.cakeText && `“${order.cakeText}”`],
+    ['Tebrik kartı yazısı', order.cardText && `“${order.cardText}”`],
     ['Kat sayısı', order.tiers],
     ['Tasarım beklentileri', order.designNotes],
-    ['Tasarım onayı', order.designApproved ? '✓ Onaylandı' : 'Onay bekliyor'],
     [
       'Teslimat türü',
-      <span className="inline-flex items-center gap-1.5">
+      <span key="teslimat" className="inline-flex items-center gap-1.5">
         {order.deliveryMethod === 'adres' ? <MapPin size={16} className="text-muted" /> : <Store size={16} className="text-muted" />}
         {order.deliveryMethod === 'adres' ? 'Adrese teslim' : 'Gel-al (müşteri alacak)'}
       </span>,
@@ -273,17 +251,7 @@ function DetailsTab({ order, customer }: { order: Order; customer?: import('../d
               </div>
             ))}
         </dl>
-        {order.extras.length > 0 && (
-          <div className="border-t border-line px-4 py-3">
-            <div className="mb-1 text-sm text-muted">Ekstralar</div>
-            {order.extras.map((e) => (
-              <div key={e.id} className="flex justify-between text-[15px]">
-                <span>{e.label}</span>
-                <span className="tabular-nums">{money(e.amount)}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <PriceBreakdown order={order} unit={unit} />
       </Card>
       {customer && (
         <Card className="p-4">
@@ -291,23 +259,31 @@ function DetailsTab({ order, customer }: { order: Order; customer?: import('../d
           <Link to={`/musteriler/${customer.id}`} className="mt-1 block text-lg font-semibold hover:underline">
             {customer.name}
           </Link>
-          <div className="text-muted">{customer.phone}</div>
-          {customer.instagram && <div className="text-sm text-muted">@{customer.instagram}</div>}
-          <div className="mt-3 flex gap-2">
-            <a href={telLink(customer.phone)} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-sm">
-              <Phone size={16} /> Ara
-            </a>
-            <a
-              href={waLink(customer.phone)}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-sm"
-            >
-              <MessageCircle size={16} /> WhatsApp
-            </a>
-          </div>
+          <ContactInfo customer={customer} />
         </Card>
       )}
+    </div>
+  )
+}
+
+/** Dilim fiyatı × kişi, ekstralar, teslimat ücreti, indirim ve toplam */
+function PriceBreakdown({ order, unit }: { order: Order; unit: 'kişi' | 'adet' }) {
+  const base = (order.unitPrice || 0) * (order.amount || 0)
+  const line = (label: ReactNode, value: ReactNode, strong?: boolean, key?: string) => (
+    <div key={key} className={cx('flex justify-between gap-3 text-[15px]', strong && 'font-semibold')}>
+      <span className={strong ? '' : 'text-muted'}>{label}</span>
+      <span className="tabular-nums">{value}</span>
+    </div>
+  )
+  return (
+    <div className="space-y-1 border-t border-line px-4 py-3">
+      <div className="mb-1 text-sm text-muted">Fiyat</div>
+      {line(`${unit === 'kişi' ? 'Dilim fiyatı' : 'Adet fiyatı'} ${money(order.unitPrice)} × ${order.amount || 0}`, money(base))}
+      {order.extras.map((e) => line(e.label || 'Ekstra', money(e.amount), false, e.id))}
+      {!!order.deliveryFee && line('Adrese teslim ücreti', money(order.deliveryFee))}
+      {!!order.discount && line('İndirim', `−${money(order.discount)}`)}
+      {line('Hesaplanan toplam', money(order.calculatedTotal))}
+      {order.agreedPrice !== order.calculatedTotal && line('Anlaşılan tutar', money(order.agreedPrice), true)}
     </div>
   )
 }
@@ -335,12 +311,8 @@ function DesignTab({ order, images }: { order: Order; images: OrderImage[] }) {
   return (
     <div className="space-y-4">
       <Card className="p-4">
-        <Toggle
-          checked={!!order.designApproved}
-          onChange={(v) => db.orders.update(order.id, { designApproved: v, updatedAt: Date.now() })}
-          label="Tasarım müşteriyle onaylandı"
-        />
-        {order.designNotes && <p className="mt-3 text-sm whitespace-pre-wrap text-muted">{order.designNotes}</p>}
+        <div className="text-[13px] text-muted">Tasarım beklentileri</div>
+        <p className="mt-1 text-sm whitespace-pre-wrap">{order.designNotes || 'Not girilmemiş.'}</p>
       </Card>
       {IMAGE_KINDS.map((k) => {
         const list = images.filter((i) => i.kind === k.value)
@@ -530,134 +502,6 @@ function PaymentsTab({
   )
 }
 
-/* ---------------- Üretim planı ---------------- */
-
-function TasksTab({ order, tasks }: { order: Order; tasks: import('../db/types').Task[] }) {
-  const toast = useToast()
-  const [name, setName] = useState('')
-  const [date, setDate] = useState(() => (order.deliveryDate > today() ? today() : order.deliveryDate))
-  const [minutes, setMinutes] = useState<number | undefined>(60)
-  const t = today()
-  const sorted = useMemo(() => [...tasks].sort((a, b) => a.sort - b.sort || a.start.localeCompare(b.start)), [tasks])
-  const total = tasks.reduce((s, x) => s + x.minutes, 0)
-
-  const replan = async () => {
-    const r = await replanOrders([order.id], { includeManual: true })
-    if (r.late.length) {
-      const e = r.late[0].earliest
-      await tell(`Bu sipariş ${fmtDate(order.deliveryDate, 'd MMMM')} tarihine kapasiteye sığmıyor. İşler bugünden itibaren yerleştirildi.${e ? `\nKapasiteye uyan en erken teslim: ${fmtDate(e, 'd MMMM EEEE')}.` : ''}`)
-    } else toast('İşler kapasiteye göre yerleştirildi')
-  }
-
-  return (
-    <Card>
-      <CardHeader
-        title={`İş adımları · toplam ${fmtMin(total)}`}
-        action={
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button size="sm" variant="soft" icon={<CalendarCheck size={15} />} onClick={replan}>
-              Kapasiteye göre yerleştir
-            </Button>
-            <Button
-              size="sm"
-              icon={<RotateCcw size={15} />}
-              onClick={async () => {
-                if (tasks.some((x) => !x.done) && !(await ask('Bitmemiş şablon adımları silinip ürün şablonundan yeniden oluşturulsun mu?', { confirmLabel: 'Yeniden oluştur' }))) return
-                await regenerateTasks(order.id)
-                toast('Adımlar şablondan oluşturuldu')
-              }}
-            >
-              Şablondan
-            </Button>
-            <LinkButton size="sm" to="/planlama" icon={<ChartGantt size={15} />}>
-              Gantt
-            </LinkButton>
-          </div>
-        }
-      />
-      <p className="-mt-1 px-4 pb-3 text-xs text-muted">
-        Adımlar teslimden geriye doğru, günlük kapasitesi boş olan günlere yerleşir; kapalı günler atlanır. Bir adımı başka güne
-        almak için tarihini değiştirin: o günden itibaren ilk boş kapasiteye yerleşir.
-      </p>
-      <div className="divide-y divide-line border-t border-line">
-        {sorted.map((x) => {
-          const issue = taskIssue(x, order.deliveryDate, t)
-          const days = allocDays(x)
-          return (
-            <div key={x.id} className="px-4 py-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  aria-label={x.done ? 'Yapılmadı olarak işaretle' : 'Yapıldı olarak işaretle'}
-                  onClick={() => db.tasks.update(x.id, { done: !x.done })}
-                  className={cx(
-                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition',
-                    x.done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-stone-300',
-                  )}
-                >
-                  {x.done && <Check size={16} />}
-                </button>
-                <InlineInput
-                  className={cx('min-w-[120px] flex-1 bg-transparent text-[15px] outline-none', x.done && 'text-muted line-through')}
-                  value={x.name}
-                  onSave={(v) => db.tasks.update(x.id, { name: v })}
-                />
-                <label className="flex items-center gap-1 text-sm text-muted">
-                  <InlineNumber
-                    className="h-9 w-16 rounded-lg border border-line px-2 text-right text-sm text-ink"
-                    value={x.minutes}
-                    onSave={(v) => setTaskMinutes(x.id, v)}
-                  />
-                  dk
-                </label>
-                {!x.done && (
-                  <input
-                    type="date"
-                    aria-label="Başlangıç günü"
-                    value={x.start}
-                    onChange={(e) => e.target.value && moveTask(x.id, e.target.value)}
-                    className={cx('h-9 rounded-lg border px-2 text-sm', issue === 'gec' ? 'border-red-300 text-red-700' : 'border-line')}
-                  />
-                )}
-                <IconButton label="Sil" onClick={() => db.tasks.delete(x.id)}>
-                  <Trash2 size={16} className="text-stone-400" />
-                </IconButton>
-              </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-10">
-                {days.map((d) => (
-                  <span key={d} className={cx('rounded-full px-2 py-0.5 text-xs', d > order.deliveryDate ? 'bg-red-50 text-red-700' : 'bg-stone-100 text-muted')}>
-                    {fmtDateShort(d)} · {fmtMin(x.alloc[d])}
-                  </span>
-                ))}
-                {x.manual && <Badge className="bg-sky-50 text-sky-800">Elle yerleştirildi</Badge>}
-                {issue === 'gec' && <Badge className="bg-red-100 text-red-700">Teslimden sonra bitiyor</Badge>}
-                {issue === 'gecikmis' && <Badge className="bg-amber-100 text-amber-800">Geride kaldı</Badge>}
-              </div>
-            </div>
-          )
-        })}
-        {!tasks.length && <EmptyState title="Plan yok" text="Şablondan oluşturun veya adım ekleyin." />}
-      </div>
-      <div className="flex flex-wrap gap-2 border-t border-line p-4">
-        <Input className="min-w-[160px] flex-1" placeholder="Yeni adım (örn. Figür hazırlığı)" value={name} onChange={(e) => setName(e.target.value)} />
-        <Input type="date" className="w-auto" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Hangi günden itibaren" />
-        <NumberInput className="w-24" value={minutes} onChange={setMinutes} placeholder="dk" aria-label="Süre (dakika)" />
-        <Button
-          variant="primary"
-          icon={<Plus size={16} />}
-          disabled={!name.trim() || !date}
-          onClick={async () => {
-            await addTask({ orderId: order.id, name: name.trim(), from: date, minutes: minutes ?? 0 })
-            setName('')
-          }}
-        >
-          Ekle
-        </Button>
-      </div>
-    </Card>
-  )
-}
-
 /* ---------------- Malzeme / maliyet ---------------- */
 
 function CostTab({ order, moves, cost }: { order: Order; moves: import('../db/types').StockMove[]; cost: number }) {
@@ -754,47 +598,3 @@ function CostTab({ order, moves, cost }: { order: Order; moves: import('../db/ty
 }
 
 /** Alandan çıkınca kaydeden sayı kutusu */
-function InlineNumber({ value, onSave, className }: { value: number; onSave: (v: number) => void; className?: string }) {
-  const [v, setV] = useState(String(value))
-  const [last, setLast] = useState(value)
-  if (value !== last) {
-    setLast(value)
-    setV(String(value))
-  }
-  return (
-    <input
-      type="number"
-      inputMode="numeric"
-      min={0}
-      className={className}
-      value={v}
-      onChange={(e) => setV(e.target.value)}
-      onFocus={(e) => e.target.select()}
-      onBlur={() => {
-        const n = Math.max(0, Math.round(Number(v)))
-        if (Number.isFinite(n) && n !== value) onSave(n)
-        else setV(String(value))
-      }}
-      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-    />
-  )
-}
-
-/** Yazarken değil, alandan çıkınca kaydeden metin kutusu */
-function InlineInput({ value, onSave, className }: { value: string; onSave: (v: string) => void; className?: string }) {
-  const [v, setV] = useState(value)
-  const [last, setLast] = useState(value)
-  if (value !== last) {
-    setLast(value)
-    setV(value)
-  }
-  return (
-    <input
-      className={className}
-      value={v}
-      onChange={(e) => setV(e.target.value)}
-      onBlur={() => v.trim() && v !== value && onSave(v.trim())}
-      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-    />
-  )
-}

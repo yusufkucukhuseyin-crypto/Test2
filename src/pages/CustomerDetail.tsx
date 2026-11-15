@@ -87,16 +87,21 @@ export default function CustomerDetail() {
               <Avatar name={c.name} className="h-12 w-12 text-base" />
               <div className="min-w-0">
                 <div className="truncate font-semibold">{c.name}</div>
-                <div className="text-muted">{c.phone}</div>
+                <div className="text-muted">{c.phone || (c.whatsapp ? `WhatsApp: ${c.whatsapp}` : '')}</div>
+                {c.phone && c.whatsapp && <div className="text-sm text-muted">WhatsApp: {c.whatsapp}</div>}
               </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <a href={telLink(c.phone)} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-sm">
-                <Phone size={16} /> Ara
-              </a>
-              <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-sm">
-                <MessageCircle size={16} /> WhatsApp
-              </a>
+              {c.phone && (
+                <>
+                  <a href={telLink(c.phone)} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-sm">
+                    <Phone size={16} /> Ara
+                  </a>
+                  <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-sm">
+                    <MessageCircle size={16} /> WhatsApp
+                  </a>
+                </>
+              )}
               {c.instagram && (
                 <a
                   href={`https://instagram.com/${c.instagram}`}
@@ -179,9 +184,9 @@ export default function CustomerDetail() {
                 const details = [
                   ['Kek', o.cakeType],
                   ['Krema', o.creamType],
-                  ['İçerik', o.filling],
-                  ['Tema', o.theme],
+                  ['İç dolgu', o.filling],
                   ['Yazı', o.cakeText],
+                  ['Tebrik kartı', o.cardText],
                 ].filter(([, v]) => v)
                 return (
                   <Card key={o.id} className="overflow-hidden">

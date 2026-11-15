@@ -2,13 +2,13 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { endOfMonth, startOfMonth } from 'date-fns'
-import { AlertTriangle, CalendarDays, Check, ClipboardList, Gift, Package, Plus, Sparkles, Wallet } from 'lucide-react'
+import { AlertTriangle, CalendarDays, ClipboardList, Gift, Package, Plus, Sparkles, Wallet } from 'lucide-react'
 import { db } from '../db/db'
 import { loadDemoData } from '../db/seed'
 import { useCoreData, sortByDelivery } from '../lib/data'
 import { useSettings } from '../lib/hooks'
-import { isOpen, productTypeOf, specialDayText, taskCovers, taskEnd, upcomingSpecialDays } from '../lib/domain'
-import { buildLoad, dayUsage, fmtHours, fmtMin, taskIssue, usageTone } from '../lib/schedule'
+import { isOpen, specialDayText, upcomingSpecialDays } from '../lib/domain'
+import { countByDay, dayStatus } from '../lib/capacity'
 import { fmtDate, isoDate, money, num, shiftDay, today } from '../lib/format'
 import { OrderRow } from '../components/shared'
 import { Button, Card, CardHeader, EmptyState, LinkButton, PageHeader, Stat, cx, useToast } from '../components/ui'
@@ -17,7 +17,6 @@ export default function Dashboard() {
   const settings = useSettings()
   const data = useCoreData()
   const toast = useToast()
-  const tasks = useLiveQuery(() => db.tasks.toArray(), [])
   const stock = useLiveQuery(() => db.stockItems.toArray(), [])
   const t = today()
 
@@ -28,31 +27,20 @@ export default function Dashboard() {
     const todays = active.filter((o) => o.deliveryDate === t).sort(sortByDelivery)
     const upcoming = active.filter((o) => o.deliveryDate > t && o.deliveryDate <= week && isOpen(o.status)).sort(sortByDelivery)
     const overdue = active.filter((o) => o.deliveryDate < t && isOpen(o.status)).sort(sortByDelivery)
-    const quotes = active.filter((o) => o.status === 'teklif' && o.deliveryDate >= t).sort(sortByDelivery)
     const open = active.filter((o) => isOpen(o.status))
     const receivable = active.reduce((s, o) => s + Math.max(0, o.agreedPrice - (data.paidByOrder.get(o.id) ?? 0)), 0)
     const ms = isoDate(startOfMonth(new Date()))
     const me = isoDate(endOfMonth(new Date()))
     const monthRevenue = active.filter((o) => o.deliveryDate >= ms && o.deliveryDate <= me).reduce((s, o) => s + o.agreedPrice, 0)
     const specials = upcomingSpecialDays(data.customers, settings.reminderDays)
-    return { todays, upcoming, overdue, quotes, open, receivable, monthRevenue, specials }
+    return { todays, upcoming, overdue, open, receivable, monthRevenue, specials }
   }, [data, settings, t])
 
   if (!settings || !data || !view) return null
 
-  const orderById = new Map(data.orders.map((o) => [o.id, o]))
-  const todayTasks = (tasks ?? [])
-    .filter((x) => taskCovers(x, t) && orderById.get(x.orderId)?.status !== 'iptal')
-    .sort((a, b) => Number(a.done) - Number(b.done) || (orderById.get(a.orderId)?.deliveryDate ?? '').localeCompare(orderById.get(b.orderId)?.deliveryDate ?? ''))
-  const lateTasks = (tasks ?? []).filter((x) => !x.done && taskEnd(x) < t && isOpen(orderById.get(x.orderId)?.status ?? 'iptal'))
-  // Önümüzdeki 14 günde kapasite aşımı ve teslime yetişmeyen siparişler
-  const liveTasks = (tasks ?? []).filter((x) => orderById.get(x.orderId)?.status !== 'iptal')
-  const load = buildLoad(liveTasks)
-  const overDays = Array.from({ length: 14 }, (_, i) => shiftDay(t, i)).filter((d) => usageTone(dayUsage(settings, load, d)) === 'asim')
-  const lateOrders = data.orders.filter(
-    (o) => isOpen(o.status) && liveTasks.some((x) => x.orderId === o.id && taskIssue(x, o.deliveryDate, t) === 'gec'),
-  )
-  const todayUsage = dayUsage(settings, load, t)
+  // Önümüzdeki 14 günde kapasitesi aşılan (ya da kapalı olup siparişi olan) günler
+  const counts = countByDay(data.orders)
+  const overDays = Array.from({ length: 14 }, (_, i) => shiftDay(t, i)).filter((d) => dayStatus(settings, counts, d).tone === 'asim')
   const lowStock = (stock ?? []).filter((s) => s.minQuantity !== undefined && s.minQuantity > 0 && s.quantity <= s.minQuantity)
 
   const empty = data.orders.length === 0 && data.customers.length === 0
@@ -162,97 +150,26 @@ export default function Dashboard() {
             )}
           </Card>
 
-          {view.quotes.length > 0 && (
-            <Card className="overflow-hidden">
-              <CardHeader title="Onay bekleyen teklifler" />
-              <div className="divide-y divide-line border-t border-line">
-                {view.quotes.map((o) => (
-                  <OrderRow key={o.id} order={o} customer={data.customerById.get(o.customerId)} settings={settings} paid={data.paidByOrder.get(o.id) ?? 0} />
-                ))}
-              </div>
-            </Card>
-          )}
         </div>
 
         <div className="space-y-4">
-          {(overDays.length > 0 || lateOrders.length > 0) && (
+          {overDays.length > 0 && (
             <Card className="border-amber-200 bg-amber-50/60 p-4">
               <div className="flex items-start gap-2 text-sm text-amber-900">
                 <AlertTriangle size={18} className="mt-0.5 shrink-0" />
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="font-semibold">Kapasite uyarısı</div>
-                  {overDays.length > 0 && (
-                    <div>Kapasitesi aşılan günler: {overDays.map((d) => fmtDate(d, 'd MMM')).join(', ')}</div>
-                  )}
-                  {lateOrders.length > 0 && (
-                    <div>
-                      Teslime yetişmeyen: {lateOrders.map((o) => `${data.customerById.get(o.customerId)?.name} (${fmtDate(o.deliveryDate, 'd MMM')})`).join(', ')}
-                    </div>
-                  )}
-                  <Link to="/planlama" className="inline-block font-medium text-amber-900 underline">
-                    Üretim planını aç
+                  <div>
+                    Kapasiteden fazla sipariş olan günler:{' '}
+                    {overDays.map((d) => `${fmtDate(d, 'd MMM')} (${counts[d] ?? 0} sipariş)`).join(', ')}
+                  </div>
+                  <Link to="/takvim" className="inline-block font-medium text-amber-900 underline">
+                    Takvimi aç
                   </Link>
                 </div>
               </div>
             </Card>
           )}
-
-          <Card>
-            <CardHeader
-              title="Bugünün işleri"
-              icon={<Check size={18} />}
-              action={
-                <Link to="/planlama" className="text-sm text-accent-ink">
-                  Plan
-                </Link>
-              }
-            />
-            <div className="px-2 pb-3">
-              {todayTasks.length ? (
-                todayTasks.map((x) => {
-                  const o = orderById.get(x.orderId)
-                  const pt = o ? productTypeOf(settings, o.productType) : undefined
-                  return (
-                    <button
-                      type="button"
-                      key={x.id}
-                      onClick={() => db.tasks.update(x.id, { done: !x.done })}
-                      className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-stone-50"
-                    >
-                      <span
-                        className={cx(
-                          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2',
-                          x.done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-stone-300',
-                        )}
-                      >
-                        {x.done && <Check size={14} />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className={cx('block truncate text-[15px]', x.done && 'text-muted line-through')}>{x.name}</span>
-                        <span className="flex items-center gap-1.5 truncate text-xs text-muted">
-                          {pt && <span className="h-2 w-2 rounded-full" style={{ background: pt.color }} />}
-                          {o ? data.customerById.get(o.customerId)?.name : ''} · teslim {o ? fmtDate(o.deliveryDate, 'd MMM') : ''}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-xs tabular-nums text-muted">{fmtMin(x.alloc?.[t] ?? x.minutes)}</span>
-                    </button>
-                  )
-                })
-              ) : (
-                <div className="px-2 text-sm text-muted">{todayUsage.closed ? 'Bugün kapalı gün.' : 'Bugün için planlanmış iş yok.'}</div>
-              )}
-              {!todayUsage.closed && todayTasks.length > 0 && (
-                <div className="mx-2 mt-2 text-xs text-muted">
-                  Bugün {fmtMin(todayUsage.used)} iş planlı · kapasite {fmtHours(todayUsage.cap)} sa
-                </div>
-              )}
-              {lateTasks.length > 0 && (
-                <Link to="/planlama" className="mx-2 mt-2 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  <AlertTriangle size={16} /> {lateTasks.length} iş adımı gecikmiş görünüyor
-                </Link>
-              )}
-            </div>
-          </Card>
 
           <Card>
             <CardHeader title="Yaklaşan özel günler" icon={<Gift size={18} />} />

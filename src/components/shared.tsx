@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Check, Clock, MapPin, Plus, Search, Store, Trash2, UserPlus } from 'lucide-react'
+import { Check, Clock, MapPin, MessageCircle, Phone, Plus, Search, Store, Trash2, UserPlus } from 'lucide-react'
 import { db } from '../db/db'
 import type { Customer, Order, OrderImage, OrderStatus, Settings, SpecialDay } from '../db/types'
 import { saveCustomer, type CustomerInput } from '../db/actions'
 import { STATUS, orderSummary, productTypeOf } from '../lib/domain'
-import { fmtDateShort, matches, money, MONTHS, uid } from '../lib/format'
+import { contactText, fmtDateShort, matches, money, MONTHS, telLink, uid, waLink } from '../lib/format'
 import { useBlobUrl, useSettings } from '../lib/hooks'
 import { Avatar, Badge, Button, ComboInput, Field, IconButton, Input, Modal, NumberInput, Select, Textarea, cx, useToast } from './ui'
 
@@ -92,7 +92,7 @@ export function CustomerPicker({ value, onChange }: { value?: string; onChange: 
   const selected = customers?.find((c) => c.id === value)
 
   const list = useMemo(
-    () => (customers ?? []).filter((c) => matches([c.name, c.phone, c.instagram], q)).slice(0, 30),
+    () => (customers ?? []).filter((c) => matches([c.name, c.phone, c.whatsapp, c.instagram], q)).slice(0, 30),
     [customers, q],
   )
 
@@ -102,7 +102,7 @@ export function CustomerPicker({ value, onChange }: { value?: string; onChange: 
         <Avatar name={selected.name} className="h-9 w-9" />
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{selected.name}</div>
-          <div className="text-sm text-muted">{selected.phone}</div>
+          <div className="text-sm text-muted">{contactText(selected)}</div>
           {selected.allergies && <div className="text-xs font-medium text-red-600">⚠ {selected.allergies}</div>}
         </div>
         <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
@@ -139,7 +139,7 @@ export function CustomerPicker({ value, onChange }: { value?: string; onChange: 
             <Avatar name={c.name} className="h-8 w-8 text-xs" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-[15px]">{c.name}</div>
-              <div className="text-xs text-muted">{c.phone}</div>
+              <div className="text-xs text-muted">{contactText(c)}</div>
             </div>
             {c.id === value && <Check size={18} className="text-accent" />}
           </button>
@@ -168,10 +168,32 @@ export function CustomerPicker({ value, onChange }: { value?: string; onChange: 
   )
 }
 
+/** Müşterinin iletişim bilgileri ve arama / WhatsApp düğmeleri */
+export function ContactInfo({ customer }: { customer: Customer }) {
+  const btn = 'inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3 text-sm'
+  return (
+    <div>
+      {customer.phone && <div className="text-muted">{customer.phone}</div>}
+      {customer.whatsapp && <div className="text-sm text-muted">WhatsApp: {customer.whatsapp}</div>}
+      {customer.instagram && <div className="text-sm text-muted">Instagram: @{customer.instagram}</div>}
+      {customer.phone && (
+        <div className="mt-3 flex gap-2">
+          <a href={telLink(customer.phone)} className={btn}>
+            <Phone size={16} /> Ara
+          </a>
+          <a href={waLink(customer.phone)} target="_blank" rel="noreferrer" className={btn}>
+            <MessageCircle size={16} /> WhatsApp
+          </a>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ---------------- Müşteri formu ---------------- */
 
 function emptyCustomer(name = ''): CustomerInput {
-  return { name, phone: '', instagram: '', address: '', source: '', allergies: '', notes: '', specialDays: [] }
+  return { name, phone: '', whatsapp: '', instagram: '', address: '', source: '', allergies: '', notes: '', specialDays: [] }
 }
 
 export function CustomerFormModal({
@@ -196,7 +218,9 @@ export function CustomerFormModal({
     if (open) setForm(customer ? { ...customer } : emptyCustomer(initialName))
   }
   const set = <K extends keyof CustomerInput>(k: K, v: CustomerInput[K]) => setForm((f) => ({ ...f, [k]: v }))
-  const valid = form.name.trim() && form.phone.trim()
+  // Telefon bilinmiyorsa WhatsApp kullanıcı adı ya da Instagram yeterli
+  const hasContact = Boolean(form.phone.trim() || form.whatsapp?.trim() || form.instagram?.trim())
+  const valid = form.name.trim() && hasContact
 
   const save = async () => {
     if (!valid) return
@@ -205,6 +229,7 @@ export function CustomerFormModal({
         ...form,
         name: form.name.trim(),
         phone: form.phone.trim(),
+        whatsapp: form.whatsapp?.replace(/^@/, '').trim(),
         instagram: form.instagram?.replace(/^@/, '').trim(),
         specialDays: form.specialDays.filter((s) => s.month && s.day),
       },
@@ -240,8 +265,11 @@ export function CustomerFormModal({
         <Field label="Ad soyad" required>
           <Input value={form.name} onChange={(e) => set('name', e.target.value)} autoFocus />
         </Field>
-        <Field label="Telefon" required>
+        <Field label="Telefon" hint={!hasContact ? 'Telefon, WhatsApp kullanıcı adı ya da Instagram’dan en az biri gerekli' : undefined}>
           <Input type="tel" inputMode="tel" value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="05xx xxx xx xx" />
+        </Field>
+        <Field label="WhatsApp kullanıcı adı" hint="Numara bilinmiyorsa">
+          <Input value={form.whatsapp ?? ''} onChange={(e) => set('whatsapp', e.target.value)} placeholder="@kullanici" autoCapitalize="off" />
         </Field>
         <Field label="Instagram kullanıcı adı">
           <Input value={form.instagram ?? ''} onChange={(e) => set('instagram', e.target.value)} placeholder="@kullanici" />

@@ -9,7 +9,7 @@ olmadan da çalışır.
 | Bölüm | Neler yapılabilir |
 |---|---|
 | **Ana sayfa** | Bugünün teslimleri, önümüzdeki 7 gün, bugünün işleri (tek dokunuşla tamamlandı), yaklaşan özel günler, bekleyen tahsilat, azalan stoklar |
-| **Siparişler** | Müşteri, ürün (pasta, cupcake, butik kurabiye, magnolia…), kişi sayısı / adet, kat, kek, krema, iç dolgu, tema, pasta yazısı, tasarım beklentileri, teslim tarihi/saati, gel-al / adrese teslim. Kişi başı fiyat + ekstralar (figür, oyuncak, özel malzeme) ile **otomatik fiyat hesabı** ve ayrı **anlaşılan tutar**. Kapora ve ödemeler, kalan bakiye. Aşamalar: Teklif → Onaylandı → Kapora alındı → Hazırlanıyor → Hazır → Teslim edildi / İptal |
+| **Siparişler** | Müşteri, ürün (pasta, cupcake, butik kurabiye…), kişi sayısı / adet, kat, kek, krema, iç dolgu (birden çok), tema, pasta yazısı, tasarım beklentileri, teslim tarihi/saati, gel-al / adrese teslim. Kişi başı fiyat + ekstralar (figür, oyuncak, özel malzeme) ile **otomatik fiyat hesabı** ve ayrı **anlaşılan tutar**. Kapora ve ödemeler, kalan bakiye. Aşamalar: Teklif → Onaylandı → Kapora alındı → Hazırlanıyor → Hazır → Teslim edildi / İptal |
 | **Tasarım** | Siparişe görsel yükleme: müşteri referansı, taslak / görüşme, onaylanan tasarım, bitmiş ürün. Tasarım onayı işareti |
 | **Müşteri kartları** | İletişim, Instagram, adres, alerji / diyet uyarısı, notlar, özel günler (doğum günü, yıl dönümü…). Geçmiş siparişlerin tüm detayları ve görselleriyle birlikte; tek tuşla **“Tekrarla”** |
 | **Hatırlatmalar** | Müşterinin özel günü yaklaşınca ana sayfada kimin, hangi kutlama olduğu ve kaç gün kaldığı gösterilir; oradan doğrudan sipariş açılır |

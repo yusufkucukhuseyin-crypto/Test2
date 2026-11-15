@@ -91,7 +91,7 @@ export async function loadDemoData() {
     mk({
       name: 'Zeynep Demir',
       phone: '0544 777 88 99',
-      source: 'Tavsiye',
+      source: 'Torunlar Tavsiye',
       allergies: 'Fındık alerjisi',
       specialDays: [{ id: uid(), type: 'Doğum günü', person: 'Oğlu Can', ...soon(3), year: 2020 }],
     }),
@@ -130,7 +130,7 @@ export async function loadDemoData() {
     { c: 3, pt: 'cupcake', d: -110, amount: 24, status: 'teslim', occasion: 'Baby shower', paid: true },
     { c: 4, pt: 'kurabiye', d: -95, amount: 60, status: 'teslim', occasion: 'Kurumsal', paid: true },
     { c: 2, pt: 'pasta', d: -80, amount: 20, status: 'teslim', tiers: 2, occasion: 'Doğum günü', paid: true, img: ['#bcd7e8', 2] },
-    { c: 5, pt: 'magnolia', d: -62, amount: 12, status: 'teslim', paid: true },
+    { c: 5, pt: 'cupcake', d: -62, amount: 12, status: 'teslim', paid: true },
     { c: 0, pt: 'kurabiye', d: -45, amount: 30, status: 'teslim', occasion: 'Doğum günü', paid: true },
     { c: 1, pt: 'pasta', d: -30, amount: 40, status: 'teslim', tiers: 3, occasion: 'Nişan', paid: true, img: ['#f7efe6', 3] },
     { c: 4, pt: 'cupcake', d: -21, amount: 36, status: 'teslim', occasion: 'Kurumsal', paid: true },
@@ -156,10 +156,10 @@ export async function loadDemoData() {
     { c: 3, pt: 'cupcake', d: 3, amount: 24, status: 'onaylandi', occasion: 'Doğum günü' },
     {
       c: 5, pt: 'pasta', d: 6, amount: 50, status: 'kapora', tiers: 3, occasion: 'Düğün',
-      cake: 'Vanilyalı', cream: 'Swiss meringue buttercream', fill: 'Orman meyveli', theme: 'Minimal',
+      cake: 'Vanilyalı', cream: 'Swiss meringue buttercream', fill: 'Orman meyveli, Karamel', theme: 'Minimal',
       design: 'Üç katlı beyaz, altın varaklı.', deposit: 8000, extras: [['Altın varak', 1200], ['Teslimat ücreti', 500]],
     },
-    { c: 2, pt: 'magnolia', d: 6, amount: 20, status: 'teklif', occasion: 'Doğum günü' },
+    { c: 2, pt: 'kurabiye', d: 6, amount: 20, status: 'teklif', occasion: 'Doğum günü' },
     { c: 0, pt: 'pasta', d: 10, amount: 20, status: 'teklif', tiers: 2, occasion: 'Baby shower', theme: 'Pastel' },
     { c: 3, pt: 'pasta', d: 13, amount: 25, status: 'onaylandi', tiers: 2, occasion: 'Söz' },
   ]

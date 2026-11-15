@@ -1,5 +1,5 @@
 import { db } from './db'
-import { DEFAULT_PRODUCT_TYPES, defaultSettings } from './defaults'
+import { DEFAULT_PRODUCT_TYPES, SETTINGS_REV, defaultSettings } from './defaults'
 import type {
   Customer,
   ImageKind,
@@ -58,6 +58,19 @@ export async function ensureSettings(): Promise<Settings> {
       }
     })
   }
+  // Sürüm 2: "Torunlar Tavsiye" kaynağı eklendi, Magnolia ürün türü kaldırıldı
+  if ((existing.rev ?? 1) < 2) {
+    const sources = merged.options.sources
+    if (!sources.includes('Torunlar Tavsiye')) {
+      const at = sources.indexOf('Tavsiye')
+      merged.options = {
+        ...merged.options,
+        sources: at >= 0 ? [...sources.slice(0, at + 1), 'Torunlar Tavsiye', ...sources.slice(at + 1)] : [...sources, 'Torunlar Tavsiye'],
+      }
+    }
+    merged.productTypes = merged.productTypes.filter((p) => p.key !== 'magnolia')
+  }
+  merged.rev = SETTINGS_REV
   if (JSON.stringify(merged) !== JSON.stringify(existing)) await db.settings.put(merged)
   return merged
 }

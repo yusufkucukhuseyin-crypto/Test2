@@ -43,7 +43,7 @@ export function productTypeOf(settings: Settings, key: string): ProductType {
   return (
     settings.productTypes.find((p) => p.key === key) ?? {
       key,
-      label: key,
+      label: key.charAt(0).toLocaleUpperCase('tr-TR') + key.slice(1),
       unit: 'adet',
       unitPrice: 0,
       color: '#999999',

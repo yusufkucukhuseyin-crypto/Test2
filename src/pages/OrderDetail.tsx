@@ -8,11 +8,13 @@ import {
   Check,
   ChartGantt,
   Copy,
+  MapPin,
   MessageCircle,
   Pencil,
   Phone,
   Plus,
   RotateCcw,
+  Store,
   Trash2,
 } from 'lucide-react'
 import { db } from '../db/db'
@@ -248,7 +250,14 @@ function DetailsTab({ order, customer }: { order: Order; customer?: import('../d
     ['Kat sayısı', order.tiers],
     ['Tasarım beklentileri', order.designNotes],
     ['Tasarım onayı', order.designApproved ? '✓ Onaylandı' : 'Onay bekliyor'],
-    ['Teslimat adresi', order.deliveryMethod === 'adres' ? order.deliveryAddress : undefined],
+    [
+      'Teslimat türü',
+      <span className="inline-flex items-center gap-1.5">
+        {order.deliveryMethod === 'adres' ? <MapPin size={16} className="text-muted" /> : <Store size={16} className="text-muted" />}
+        {order.deliveryMethod === 'adres' ? 'Adrese teslim' : 'Gel-al (müşteri alacak)'}
+      </span>,
+    ],
+    ['Teslimat adresi', order.deliveryMethod === 'adres' ? order.deliveryAddress || 'Adres girilmemiş' : undefined],
     ['Notlar', order.notes],
   ]
   return (

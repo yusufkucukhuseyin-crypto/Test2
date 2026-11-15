@@ -205,6 +205,8 @@ export interface Settings {
   dayNotes: Record<string, string>
   /** Kapasite birimi; eski sürümden geçişi anlamak için */
   capacityUnit?: 'saat'
+  /** Ayar verisi sürümü; tek seferlik geçişler için */
+  rev?: number
   productTypes: ProductType[]
   options: OptionLists
   reminderDays: number

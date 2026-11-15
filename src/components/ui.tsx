@@ -13,7 +13,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, X } from 'lucide-react'
+import { ArrowLeft, Check, Plus, X } from 'lucide-react'
 
 export function cx(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(' ')
@@ -285,6 +285,84 @@ export function ComboInput({
         ))}
       </datalist>
     </>
+  )
+}
+
+/** Virgülle ayrılmış metni listeye çevirir ("Çilek, Muz" -> ["Çilek", "Muz"]) */
+export function splitList(v: string | undefined): string[] {
+  return (v ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+}
+
+const sameText = (a: string, b: string) => a.toLocaleLowerCase('tr-TR') === b.toLocaleLowerCase('tr-TR')
+
+/** Birden çok seçilebilen çipler + listede olmayanı ekleme. Değer virgülle ayrılmış metin olarak tutulur. */
+export function MultiChipSelect({
+  options,
+  value,
+  onChange,
+  placeholder,
+}: {
+  options: string[]
+  value: string | undefined
+  onChange: (v: string) => void
+  placeholder?: string
+}) {
+  const selected = splitList(value)
+  const [draft, setDraft] = useState('')
+  const isOn = (o: string) => selected.some((s) => sameText(s, o))
+  const toggle = (o: string) =>
+    onChange((isOn(o) ? selected.filter((s) => !sameText(s, o)) : [...selected, o]).join(', '))
+  const add = () => {
+    const items = splitList(draft).filter((x, i, all) => !isOn(x) && all.findIndex((y) => sameText(x, y)) === i)
+    if (items.length) onChange([...selected, ...items].join(', '))
+    setDraft('')
+  }
+  // Listede olmayan (elle eklenmiş) seçimler de çip olarak görünsün
+  const custom = selected.filter((s) => !options.some((o) => sameText(o, s)))
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5">
+        {[...options, ...custom].map((o) => {
+          const on = isOn(o)
+          return (
+            <button
+              type="button"
+              key={o}
+              aria-pressed={on}
+              onClick={() => toggle(o)}
+              className={cx(
+                'inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-sm transition',
+                on ? 'border-accent bg-accent text-white' : 'border-line bg-white text-ink hover:bg-stone-50',
+              )}
+            >
+              {on && <Check size={14} />}
+              {o}
+            </button>
+          )
+        })}
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Input
+          placeholder={placeholder ?? 'Başka içerik yazın…'}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              add()
+            }
+          }}
+          onBlur={add}
+        />
+        <Button className="shrink-0" icon={<Plus size={16} />} onClick={add} disabled={!draft.trim()}>
+          Ekle
+        </Button>
+      </div>
+      {selected.length > 1 && <div className="mt-1.5 text-[13px] text-muted">{selected.length} seçim: {selected.join(', ')}</div>}
+    </div>
   )
 }
 

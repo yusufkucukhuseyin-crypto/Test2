@@ -14,6 +14,7 @@ import {
   Card,
   ChipSelect,
   ComboInput,
+  MultiChipSelect,
   Field,
   IconButton,
   Input,
@@ -244,7 +245,8 @@ export default function OrderForm() {
 
           <Section title="Ürün">
             <div className="mb-3 flex flex-wrap gap-2">
-              {settings.productTypes.map((p) => (
+              {/* Ayarlardan kaldırılmış türdeki eski sipariş düzenlenirken o tür de görünsün */}
+              {(settings.productTypes.some((p) => p.key === form.productType) ? settings.productTypes : [...settings.productTypes, pt]).map((p) => (
                 <button
                   type="button"
                   key={p.key}
@@ -282,13 +284,13 @@ export default function OrderForm() {
               <Field label="Krema cinsi">
                 <ComboInput options={settings.options.creamTypes} value={form.creamType} onChange={(v) => set('creamType', v)} />
               </Field>
-              <Field label="İç dolgu / içerikler">
-                <ComboInput options={settings.options.fillings} value={form.filling} onChange={(v) => set('filling', v)} />
+              <Field label="İç dolgu / içerikler (birden çok seçilebilir)" className="md:col-span-2" group>
+                <MultiChipSelect options={settings.options.fillings} value={form.filling} onChange={(v) => set('filling', v)} />
               </Field>
               <Field label="Tema">
                 <ComboInput options={settings.options.themes} value={form.theme} onChange={(v) => set('theme', v)} />
               </Field>
-              <Field label="Pasta üstü yazı" className="md:col-span-2">
+              <Field label="Pasta üstü yazı">
                 <Input value={form.cakeText ?? ''} onChange={(e) => set('cakeText', e.target.value)} placeholder="Örn. İyi ki doğdun Elif" />
               </Field>
             </div>

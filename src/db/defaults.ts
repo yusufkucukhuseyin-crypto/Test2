@@ -42,18 +42,6 @@ export const DEFAULT_PRODUCT_TYPES: ProductType[] = [
     ],
   },
   {
-    key: 'magnolia',
-    label: 'Magnolia',
-    unit: 'adet',
-    unitPrice: 120,
-    color: '#9a8cc2',
-    hasTiers: false,
-    tasks: [
-      { name: 'Hazırlık', offset: 1, fixedMin: 30, perUnitMin: 2 },
-      { name: 'Süsleme', offset: 0, fixedMin: 15, perUnitMin: 1 },
-    ],
-  },
-  {
     key: 'diger',
     label: 'Diğer',
     unit: 'adet',
@@ -64,6 +52,9 @@ export const DEFAULT_PRODUCT_TYPES: ProductType[] = [
   },
 ]
 
+/** Ayar verisi sürümü. Artırınca ensureSettings içine geçişini ekleyin. */
+export const SETTINGS_REV = 2
+
 export function defaultSettings(): Settings {
   return {
     id: 'main',
@@ -73,6 +64,7 @@ export function defaultSettings(): Settings {
     capacityOverrides: {},
     dayNotes: {},
     capacityUnit: 'saat',
+    rev: SETTINGS_REV,
     productTypes: DEFAULT_PRODUCT_TYPES,
     reminderDays: 21,
     nextOrderNo: 1,
@@ -102,7 +94,7 @@ export function defaultSettings(): Settings {
         'Diğer',
       ],
       specialDayTypes: ['Doğum günü', 'Evlilik yıl dönümü', 'Tanışma yıl dönümü', 'Anneler günü', 'Diğer'],
-      sources: ['Instagram', 'WhatsApp', 'Telefon', 'Tavsiye', 'Eski müşteri', 'Diğer'],
+      sources: ['Instagram', 'WhatsApp', 'Telefon', 'Tavsiye', 'Torunlar Tavsiye', 'Eski müşteri', 'Diğer'],
       paymentMethods: ['Nakit', 'Havale/EFT', 'Kredi kartı'],
       extras: [
         'Figür / oyuncak',

@@ -5,6 +5,7 @@ import {
   ChartColumn,
   ClipboardList,
   EyeOff,
+  Gift,
   House,
   Images,
   Menu,
@@ -17,7 +18,10 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db } from '../db/db'
 import { useSettings } from '../lib/hooks'
+import { upcomingSpecialDays } from '../lib/domain'
 import { resolveAccent } from '../lib/color'
 import { cx } from './ui'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -27,6 +31,7 @@ const NAV: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: '/siparisler', label: 'Siparişler', icon: <ClipboardList size={20} /> },
   { to: '/takvim', label: 'Takvim', icon: <CalendarDays size={20} /> },
   { to: '/musteriler', label: 'Müşteriler', icon: <Users size={20} /> },
+  { to: '/ozel-gunler', label: 'Özel günler', icon: <Gift size={20} /> },
   { to: '/fiyat-listesi', label: 'Fiyat listesi', icon: <Tags size={20} /> },
   { to: '/katalog', label: 'Katalog', icon: <Images size={20} /> },
   { to: '/stok', label: 'Stok', icon: <Package size={20} /> },
@@ -112,6 +117,10 @@ export default function Layout() {
     window.scrollTo(0, 0)
   }, [loc.pathname])
 
+  // Önümüzdeki 7 gündeki özel günler: menüde sayı olarak gösterilir
+  const soonSpecials = useLiveQuery(async () => upcomingSpecialDays(await db.customers.toArray(), 7).length, []) ?? 0
+  const badge = (to: string) => (to === '/ozel-gunler' && soonSpecials > 0 ? soonSpecials : 0)
+
   const name = settings?.businessName || 'Pastane'
   const logo = settings?.logo
   const mini = mode === 'mini'
@@ -157,8 +166,16 @@ export default function Layout() {
                   )
                 }
               >
-                {n.icon}
+                <span className="relative">
+                  {n.icon}
+                  {mini && badge(n.to) > 0 && <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-white" />}
+                </span>
                 {!mini && n.label}
+                {!mini && badge(n.to) > 0 && (
+                  <span className="ml-auto rounded-full bg-accent px-1.5 text-xs leading-5 font-semibold text-white" title="7 gün içinde">
+                    {badge(n.to)}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>
@@ -276,7 +293,12 @@ export default function Layout() {
                     )
                   }
                 >
-                  {n.icon}
+                  <span className="relative">
+                    {n.icon}
+                    {badge(n.to) > 0 && (
+                      <span className="absolute -top-1.5 -right-2.5 rounded-full bg-accent px-1 text-[10px] leading-4 font-semibold text-white">{badge(n.to)}</span>
+                    )}
+                  </span>
                   {n.label}
                 </NavLink>
               ))}

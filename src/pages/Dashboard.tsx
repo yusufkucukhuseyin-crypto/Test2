@@ -2,18 +2,18 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { endOfMonth, startOfMonth } from 'date-fns'
-import { AlertTriangle, CalendarDays, ClipboardList, Gift, Package, Plus, Sparkles, Wallet } from 'lucide-react'
+import { AlertTriangle, CalendarDays, ClipboardList, Package, Plus, Sparkles } from 'lucide-react'
 import { db } from '../db/db'
 import { loadDemoData } from '../db/seed'
 import { useCoreData, sortByDelivery } from '../lib/data'
 import { useSettings } from '../lib/hooks'
-import { isOpen, specialDayText, upcomingSpecialDays } from '../lib/domain'
+import { isOpen } from '../lib/domain'
 import { countByDay, dayStatus } from '../lib/capacity'
 import { fmtDate, isoDate, money, num, shiftDay, today } from '../lib/format'
 import { OrderRow } from '../components/shared'
 import { InstallCard } from '../components/AppInstall'
 import { BackupReminder, RestoreButton } from '../components/Backup'
-import { Button, Card, CardHeader, EmptyState, LinkButton, PageHeader, Stat, cx, useToast } from '../components/ui'
+import { Button, Card, CardHeader, EmptyState, LinkButton, PageHeader, Stat, useToast } from '../components/ui'
 
 export default function Dashboard() {
   const settings = useSettings()
@@ -30,12 +30,13 @@ export default function Dashboard() {
     const upcoming = active.filter((o) => o.deliveryDate > t && o.deliveryDate <= week && isOpen(o.status)).sort(sortByDelivery)
     const overdue = active.filter((o) => o.deliveryDate < t && isOpen(o.status)).sort(sortByDelivery)
     const open = active.filter((o) => isOpen(o.status))
-    const receivable = active.reduce((s, o) => s + Math.max(0, o.agreedPrice - (data.paidByOrder.get(o.id) ?? 0)), 0)
+    const balances = active.map((o) => Math.max(0, o.agreedPrice - (data.paidByOrder.get(o.id) ?? 0)))
+    const receivable = balances.reduce((s, b) => s + b, 0)
+    const unpaidCount = balances.filter((b) => b > 0).length
     const ms = isoDate(startOfMonth(new Date()))
     const me = isoDate(endOfMonth(new Date()))
     const monthRevenue = active.filter((o) => o.deliveryDate >= ms && o.deliveryDate <= me).reduce((s, o) => s + o.agreedPrice, 0)
-    const specials = upcomingSpecialDays(data.customers, settings.reminderDays)
-    return { todays, upcoming, overdue, open, receivable, monthRevenue, specials }
+    return { todays, upcoming, overdue, open, receivable, unpaidCount, monthRevenue }
   }, [data, settings, t])
 
   if (!settings || !data || !view) return null
@@ -97,7 +98,13 @@ export default function Dashboard() {
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Bugün teslim" value={view.todays.length} sub={view.todays.length ? undefined : 'Teslim yok'} />
         <Stat label="7 gün içinde" value={view.upcoming.length} sub={`${view.open.length} açık sipariş`} />
-        <Stat label="Bekleyen tahsilat" value={money(view.receivable)} tone={view.receivable > 0 ? 'text-red-600' : undefined} />
+        <Stat
+          label="Bekleyen tahsilat"
+          value={money(view.receivable)}
+          tone={view.receivable > 0 ? 'text-red-600' : undefined}
+          sub={view.unpaidCount ? `${view.unpaidCount} sipariş · listele` : 'Bekleyen yok'}
+          to="/siparisler?g=tum&kalan=1"
+        />
         <Stat label="Bu ay ciro" value={money(view.monthRevenue)} sub="Teslim tarihine göre" />
       </div>
 
@@ -175,60 +182,6 @@ export default function Dashboard() {
                     Takvimi aç
                   </Link>
                 </div>
-              </div>
-            </Card>
-          )}
-
-          <Card>
-            <CardHeader title="Yaklaşan özel günler" icon={<Gift size={18} />} />
-            <div className="px-4 pb-4">
-              {view.specials.length ? (
-                <ul className="space-y-3">
-                  {view.specials.map((u) => (
-                    <li key={u.special.id} className="flex items-start gap-3">
-                      <div
-                        className={cx(
-                          'flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-xl text-center leading-none',
-                          u.inDays <= 7 ? 'bg-accent text-white' : 'bg-accent-soft text-accent-ink',
-                        )}
-                      >
-                        <span className="text-base font-semibold">{u.inDays}</span>
-                        <span className="text-[10px]">gün</span>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <Link to={`/musteriler/${u.customer.id}`} className="font-medium hover:underline">
-                          {u.customer.name}
-                        </Link>
-                        <div className="text-sm text-muted">
-                          {specialDayText(u)} · {fmtDate(u.date, 'd MMMM')}
-                        </div>
-                        <Link to={`/siparisler/yeni?musteri=${u.customer.id}&tarih=${u.date}`} className="text-xs font-medium text-accent-ink">
-                          + Sipariş oluştur
-                        </Link>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="text-sm text-muted">
-                  Önümüzdeki {settings.reminderDays} günde özel gün yok. Müşteri kartlarına doğum günü, yıl dönümü gibi tarihleri
-                  ekleyince burada hatırlatılır.
-                </div>
-              )}
-            </div>
-          </Card>
-
-          {view.receivable > 0 && (
-            <Card className="p-4">
-              <div className="flex items-center gap-3">
-                <Wallet size={20} className="text-accent" />
-                <div className="flex-1">
-                  <div className="text-sm text-muted">Tahsil edilecek</div>
-                  <div className="text-lg font-semibold tabular-nums">{money(view.receivable)}</div>
-                </div>
-                <LinkButton size="sm" to="/siparisler?g=tum&kalan=1">
-                  Listele
-                </LinkButton>
               </div>
             </Card>
           )}

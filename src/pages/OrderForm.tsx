@@ -429,7 +429,40 @@ export default function OrderForm() {
                 </button>
               </div>
             )}
-            <div className="mt-3">
+            <Field label="Anlaşılan tutar" className="mt-3" hint={form.agreedPrice !== calc ? `Hesaplanandan fark: ${money((form.agreedPrice || 0) - calc)}` : undefined}>
+              <div className="flex gap-2">
+                <NumberInput
+                  integer
+                  value={form.agreedPrice}
+                  onChange={(v) => {
+                    setAgreedTouched(true)
+                    set('agreedPrice', v ?? 0)
+                  }}
+                />
+                {agreedTouched && form.agreedPrice !== calc && (
+                  <Button
+                    onClick={() => {
+                      setAgreedTouched(false)
+                      set('agreedPrice', calc)
+                    }}
+                  >
+                    = Hesaplanan
+                  </Button>
+                )}
+              </div>
+            </Field>
+
+            <div className="mt-2 space-y-1.5 rounded-xl bg-stone-50 p-3 text-sm">
+              <Row
+                label={`${pt.label} · ${form.amount || 0} ${pt.unit === 'kişi' ? 'kişilik' : 'adet'}`}
+                value={money((form.unitPrice || 0) * (form.amount || 0))}
+              />
+              {form.extras.some((e) => e.amount) && <Row label="Ekstralar" value={money(form.extras.reduce((s, e) => s + (e.amount || 0), 0))} />}
+              {fee > 0 && <Row label="Adrese teslim" value={money(fee)} />}
+              {!!form.discount && <Row label="İndirim" value={`−${money(form.discount)}`} />}
+              <Row label={<b>Hesaplanan toplam</b>} value={<b>{money(calc)}</b>} />
+            </div>
+            <div className="mt-4 border-t border-line pt-4">
               <div className="mb-1 flex items-center justify-between">
                 <span className="text-[13px] font-medium text-muted">Ekstralar (aksesuar, oyuncak, özel malzeme…)</span>
               </div>
@@ -469,39 +502,6 @@ export default function OrderForm() {
             <Field label="İndirim" className="mt-3" hint="Toplamdan düşülür">
               <NumberInput integer value={form.discount} onChange={(v) => set('discount', v)} placeholder="₺" />
             </Field>
-            <div className="mt-4 space-y-1.5 rounded-xl bg-stone-50 p-3 text-sm">
-              <Row
-                label={`${pt.label} · ${form.amount || 0} ${pt.unit === 'kişi' ? 'kişilik' : 'adet'}`}
-                value={money((form.unitPrice || 0) * (form.amount || 0))}
-              />
-              {form.extras.some((e) => e.amount) && <Row label="Ekstralar" value={money(form.extras.reduce((s, e) => s + (e.amount || 0), 0))} />}
-              {fee > 0 && <Row label="Adrese teslim" value={money(fee)} />}
-              {!!form.discount && <Row label="İndirim" value={`−${money(form.discount)}`} />}
-              <Row label={<b>Hesaplanan toplam</b>} value={<b>{money(calc)}</b>} />
-            </div>
-            <Field label="Anlaşılan tutar" className="mt-3" hint={form.agreedPrice !== calc ? `Hesaplanandan fark: ${money((form.agreedPrice || 0) - calc)}` : undefined}>
-              <div className="flex gap-2">
-                <NumberInput
-                  integer
-                  value={form.agreedPrice}
-                  onChange={(v) => {
-                    setAgreedTouched(true)
-                    set('agreedPrice', v ?? 0)
-                  }}
-                />
-                {agreedTouched && form.agreedPrice !== calc && (
-                  <Button
-                    onClick={() => {
-                      setAgreedTouched(false)
-                      set('agreedPrice', calc)
-                    }}
-                  >
-                    = Hesaplanan
-                  </Button>
-                )}
-              </div>
-            </Field>
-
             {!isEdit && (
               <div className="mt-4 border-t border-line pt-4">
                 <div className="mb-2 text-[13px] font-medium text-muted">Alınan kapora</div>

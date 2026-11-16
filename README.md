@@ -8,13 +8,13 @@ olmadan da çalışır.
 
 | Bölüm | Neler yapılabilir |
 |---|---|
-| **Ana sayfa** | Bugünün teslimleri, önümüzdeki 7 gün, tarihi geçmiş açık siparişler, kapasitesi aşılan günler, yaklaşan özel günler, bekleyen tahsilat, azalan stoklar |
+| **Ana sayfa** | Bugünün teslimleri, önümüzdeki 7 gün, tarihi geçmiş açık siparişler, kapasitesi aşılan günler, bekleyen tahsilat (dokununca liste), azalan stoklar, yedek hatırlatması |
 | **Siparişler** | Müşteri, ürün (fiyat listesinden), kişi sayısı / adet, kat, kek cinsi (Vanilya / Kakao), krema cinsi (Vanilyalı / Çikolatalı), iç dolgu (birden çok), pasta üstü yazı, tebrik kartı yazısı, tasarım beklentileri, teslim tarihi/saati, gel-al / adrese teslim (+ teslimat ücreti). Dilim fiyatı × kişi + ekstralar + teslimat − indirim ile **otomatik fiyat** ve ayrı **anlaşılan tutar**. Kapora ve ödemeler, kalan bakiye. Durum: Onaylandı / Teslim edildi / İptal edildi |
 | **Yazdırma** | Sipariş detayında **Yazdır**: logolu A4 sipariş fişi (müşteri, teslim, içerik, yazılar, görseller, fiyat ve kalan ödeme) |
 | **Fiyat listesi** | Pasta türleri, içerikleri ve dilim / adet fiyatları; **hızlı hesapla** (tür + kişi sayısı + indirim) ve bu fiyatla sipariş oluşturma |
 | **Tasarım** | Siparişe görsel yükleme: müşteri referansı, taslak / görüşme, onaylanan tasarım, bitmiş ürün |
 | **Müşteri kartları** | Telefon **ya da WhatsApp kullanıcı adı** (numara bilinmiyorsa), Instagram, adres, alerji / diyet uyarısı, notlar, özel günler. Geçmiş siparişler görselleriyle; tek tuşla **“Tekrarla”** |
-| **Hatırlatmalar** | Müşterinin özel günü yaklaşınca ana sayfada kimin, hangi kutlama olduğu ve kaç gün kaldığı gösterilir |
+| **Özel günler** | Menüdeki ayrı sayfada müşterilerin yaklaşan doğum günü, yıl dönümü gibi kutlamaları (7 gün / 30 gün / 3 ay / 1 yıl); kimin, hangi kutlama, kaç gün kaldı, sipariş alındı mı. 7 gün içindekilerin sayısı menüde görünür |
 | **Takvim** | Aylık görünüm; her gün teslim edilecek sipariş sayısına göre renklenir: **Uygun** (0), **Yoğun** (1), **Dolu** (2), **Kapasite aşıldı** (3+). Güne özel kapasite, not ve günü kapatma |
 | **Katalog** | Bitmiş ürün fotoğrafları; ürün türüne göre filtre; **“Bu modelden sipariş”** |
 | **Stok** | Malzeme miktarı ve birim maliyeti, alışta ağırlıklı ortalama maliyet, kullanım, sayım, minimum seviye uyarısı. Siparişe malzeme yazınca **maliyet ve brüt kâr** |

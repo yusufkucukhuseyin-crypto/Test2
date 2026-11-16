@@ -4,7 +4,7 @@ import { ClipboardList, Plus, Search } from 'lucide-react'
 import { endOfWeek, startOfWeek } from 'date-fns'
 import { STATUS, STATUS_ORDER, isOpen } from '../lib/domain'
 import { TONE, countByDay, dayStatus, fmtCount } from '../lib/capacity'
-import { fmtDate, isoDate, matches, relDay, today } from '../lib/format'
+import { fmtDate, isoDate, matches, relDay, today, money } from '../lib/format'
 import { useCoreData, sortByDelivery } from '../lib/data'
 import { useSettings } from '../lib/hooks'
 import { OrderRow } from '../components/shared'
@@ -131,6 +131,14 @@ export default function Orders() {
         </div>
       </div>
 
+      {unpaid && filtered.length > 0 && (
+        <div className="mb-3 flex items-center justify-between rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-800" data-testid="unpaid-summary">
+          <span>{filtered.length} siparişte kalan ödeme var</span>
+          <b className="tabular-nums">
+            {money(filtered.reduce((s, o) => s + Math.max(0, o.agreedPrice - (data.paidByOrder.get(o.id) ?? 0)), 0))}
+          </b>
+        </div>
+      )}
       {groups.length === 0 ? (
         <Card>
           <EmptyState

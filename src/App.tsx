@@ -11,6 +11,7 @@ import Customers from './pages/Customers'
 import CustomerDetail from './pages/CustomerDetail'
 import CalendarPage from './pages/Calendar'
 import PriceList from './pages/PriceList'
+import SpecialDays from './pages/SpecialDays'
 import PrintOrder from './pages/PrintOrder'
 import Catalog from './pages/Catalog'
 import Stock from './pages/Stock'
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="musteriler/:id" element={<CustomerDetail />} />
             <Route path="takvim" element={<CalendarPage />} />
             <Route path="fiyat-listesi" element={<PriceList />} />
+            <Route path="ozel-gunler" element={<SpecialDays />} />
             <Route path="katalog" element={<Catalog />} />
             <Route path="stok" element={<Stock />} />
             <Route path="raporlar" element={<Reports />} />

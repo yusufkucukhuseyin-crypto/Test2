@@ -14,7 +14,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Check, Plus, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Plus, X } from 'lucide-react'
 
 export function cx(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(' ')
@@ -626,13 +626,23 @@ export function useToast() {
 
 /* ---------------- Diğer ---------------- */
 
-export function Stat({ label, value, sub, tone }: { label: string; value: ReactNode; sub?: ReactNode; tone?: string }) {
-  return (
-    <div className="rounded-2xl border border-line bg-white p-4">
-      <div className="text-[13px] text-muted">{label}</div>
+export function Stat({ label, value, sub, tone, to }: { label: string; value: ReactNode; sub?: ReactNode; tone?: string; to?: string }) {
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2 text-[13px] text-muted">
+        {label}
+        {to && <ChevronRight size={16} className="shrink-0" />}
+      </div>
       <div className={cx('mt-1 text-xl font-semibold tabular-nums text-ink', tone)}>{value}</div>
       {sub && <div className="mt-0.5 text-xs text-muted">{sub}</div>}
-    </div>
+    </>
+  )
+  return to ? (
+    <Link to={to} className="block rounded-2xl border border-line bg-white p-4 transition hover:border-accent/40 hover:bg-stone-50 active:bg-stone-100">
+      {body}
+    </Link>
+  ) : (
+    <div className="rounded-2xl border border-line bg-white p-4">{body}</div>
   )
 }
 

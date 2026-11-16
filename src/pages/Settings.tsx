@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Check, Download, ImageUp, Trash2, Upload, X } from 'lucide-react'
+import { Check, ImageUp, Trash2, X } from 'lucide-react'
 import { db } from '../db/db'
 import { ACCENTS } from '../db/defaults'
 import { setDayCapacity, updateSettings } from '../db/actions'
-import { exportBackup, importBackup, saveFile, wipeAll } from '../db/backup'
+import { wipeAll } from '../db/backup'
+import { BackupButton, RestoreButton } from '../components/Backup'
+import { InstallCard } from '../components/AppInstall'
 import { loadDemoData } from '../db/seed'
 import type { OptionLists, Settings } from '../db/types'
 import { useSettings } from '../lib/hooks'
@@ -65,6 +67,8 @@ export default function SettingsPage() {
           </Button>
         }
       />
+
+      <InstallCard className="mb-4" />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
@@ -372,7 +376,7 @@ function ClosuresCard({ settings }: { settings: Settings }) {
 
 function DataCard() {
   const toast = useToast()
-  const fileRef = useRef<HTMLInputElement>(null)
+  const settings = useSettings()
   const [busy, setBusy] = useState(false)
   const [storage, setStorage] = useState<{ persisted?: boolean; usage?: number; quota?: number }>({})
   const counts = useLiveQuery(async () => ({
@@ -410,49 +414,19 @@ function DataCard() {
           ? 'Kalıcı depolama açık: tarayıcı verileri kendiliğinden silmez.'
           : 'Kalıcı depolama onaylanmadı. Uygulamayı ana ekrana ekleyin ve düzenli yedek alın.'}
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button
-          variant="primary"
-          icon={<Download size={16} />}
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true)
-            try {
-              const ok = await saveFile(await exportBackup(), `luma-yedek-${today()}.json`)
-              if (ok) toast('Yedek kaydedildi')
-            } finally {
-              setBusy(false)
-            }
-          }}
-        >
-          Yedek al
-        </Button>
-        <Button icon={<Upload size={16} />} disabled={busy} onClick={() => fileRef.current?.click()}>
-          Yedeği geri yükle
-        </Button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/json,.json"
-          className="hidden"
-          onChange={async (e) => {
-            const f = e.target.files?.[0]
-            e.target.value = ''
-            if (!f) return
-            if (!(await ask('Yedek geri yüklenirse bu cihazdaki TÜM mevcut verilerin yerini alır. Devam edilsin mi?', { confirmLabel: 'Geri yükle' }))) return
-            setBusy(true)
-            try {
-              await importBackup(f)
-              toast('Yedek geri yüklendi')
-              setTimeout(() => location.reload(), 600)
-            } catch (err) {
-              await tell((err as Error).message)
-            } finally {
-              setBusy(false)
-            }
-          }}
-        />
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <BackupButton />
+        <RestoreButton />
+        <span className="text-sm text-muted">
+          Son yedek: {settings?.lastBackupAt ? fmtDate(new Date(settings.lastBackupAt).toISOString().slice(0, 10), 'd MMMM yyyy') : 'hiç alınmadı'}
+        </span>
       </div>
+      {import.meta.env.VITE_EMBED && (
+        <div className="mt-3 rounded-xl bg-accent-soft/60 px-3 py-2 text-sm text-accent-ink">
+          <b>Uygulamaya geçerken:</b> burada “Yedek al” ile dosyayı kaydedin, telefona yüklediğiniz uygulamada Ayarlar → “Yedeği geri
+          yükle” ile açın. Tüm müşteri, sipariş ve görselleriniz taşınır.
+        </div>
+      )}
       <div className="mt-6 border-t border-line pt-4">
         <div className="mb-2 text-sm font-medium">Deneme</div>
         <div className="flex flex-wrap gap-2">

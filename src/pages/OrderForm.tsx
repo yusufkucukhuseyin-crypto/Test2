@@ -252,7 +252,7 @@ export default function OrderForm() {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
         <div className="space-y-4">
           <Section title="Müşteri">
             <CustomerPicker value={form.customerId} onChange={(v) => set('customerId', v)} />
@@ -525,6 +525,7 @@ export default function OrderForm() {
           <Section title="Durum ve notlar">
             <Field label="Sipariş durumu" group>
               <Segmented<OrderStatus>
+                full
                 value={form.status}
                 onChange={(v) => set('status', v)}
                 options={(['onaylandi', 'teslim', 'iptal'] as const).map((s) => ({ value: s, label: STATUS[s].label }))}

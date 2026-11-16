@@ -80,7 +80,7 @@ export default function CustomerDetail() {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
         <div className="space-y-4">
           <Card className="p-4">
             <div className="flex items-center gap-3">

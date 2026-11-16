@@ -35,6 +35,16 @@ body {
   font-family: var(--font-sans);
   font-size: 16px;
   line-height: 1.5;
+  /* Dokunmatik: çift dokunuşla yakınlaşma ve gecikme olmasın */
+  touch-action: manipulation;
+}
+
+/* Uygulama hissi: düğme ve menü metinleri basılı tutunca seçilmesin */
+button,
+nav a,
+[role='tab'] {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 input,

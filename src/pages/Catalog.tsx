@@ -73,8 +73,8 @@ export default function Catalog() {
         title="Katalog"
         subtitle="Bitmiş ürün fotoğraflarınız — müşteriye “bu modelden” diye göstermek için"
         actions={
-          <div className="flex gap-2">
-            <Select className="h-11 w-auto" value={uploadType} onChange={(e) => setUploadType(e.target.value)} aria-label="Eklenecek ürün türü">
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Select className="h-11 w-auto min-w-0 flex-1 sm:flex-none" value={uploadType} onChange={(e) => setUploadType(e.target.value)} aria-label="Eklenecek ürün türü">
               {settings.productTypes.map((p) => (
                 <option key={p.key} value={p.key}>
                   {p.label}

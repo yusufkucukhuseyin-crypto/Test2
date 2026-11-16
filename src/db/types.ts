@@ -228,4 +228,6 @@ export interface Settings {
   accentColor?: string
   /** Firma logosu (data URL) */
   logo?: string
+  /** Son yedek alma zamanı (ms) */
+  lastBackupAt?: number
 }

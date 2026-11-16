@@ -52,16 +52,33 @@ npm run preview   # derlemeyi yerelde çalıştır
 
 Teknolojiler: React 19, TypeScript, Vite, Tailwind CSS 4, Dexie (IndexedDB), date-fns, vite-plugin-pwa.
 
-## Yayına alma
+## Yayına alma (uygulama adresi)
 
-`npm run build` çıktısı (`dist/`) statik dosyalardır; Vercel, Netlify, Cloudflare Pages veya GitHub Pages
-gibi herhangi bir statik barındırma servisine yüklenebilir. Uygulama göreli yollar ve `#/` adresleri
-kullandığı için ek sunucu ayarı gerekmez. PWA (ana ekrana ekleme, internetsiz çalışma) için HTTPS gerekir.
+Uygulama statik dosyalardan oluşur (`npm run build` → `dist/`), sunucu gerektirmez. Göreli yollar ve `#/` adresleri
+kullandığı için herhangi bir klasörde çalışır. Ana ekrana ekleme ve internetsiz çalışma için **HTTPS** gerekir.
 
-### Telefona / tablete yükleme
+**GitHub Pages (hazır):** `.github/workflows/deploy-pages.yml`, `main` dalına her gönderimde uygulamayı yayınlar.
+Bir kerelik ayar: depoda *Settings → Pages → Build and deployment → Source: GitHub Actions*. Adres:
+`https://<kullanıcı-adı>.github.io/<depo-adı>/`. İstenirse kendi alan adınız (ör. `uygulama.lumacakes.com.tr`) bağlanabilir.
 
-- **iPhone / iPad (Safari):** Paylaş → *Ana Ekrana Ekle*
-- **Android (Chrome):** ⋮ menü → *Uygulamayı yükle* / *Ana ekrana ekle*
+Vercel, Netlify ya da Cloudflare Pages’e de `dist/` klasörü olduğu gibi yüklenebilir.
+
+Yeni sürüm yayınlanınca açık uygulamada altta **“Uygulamanın yeni sürümü hazır → Yenile”** çıkar; form doldururken
+sayfa kendiliğinden yenilenmez.
+
+## Telefona / tablete yükleme
+
+- **iPhone / iPad (Safari):** uygulama adresini açın → *Paylaş* → *Ana Ekrana Ekle* → *Ekle*
+- **Android (Chrome):** adresi açın → uygulamadaki **Uygulamayı yükle** düğmesi ya da ⋮ menü → *Uygulamayı yükle*
+
+Uygulama ilk açılışta bu adımları kendisi de gösterir. Ana ekrandan tam ekran açılır, iPhone/iPad’de açılış ekranı vardır,
+Android’de simgeye basılı tutunca *Yeni sipariş / Takvim / Fiyat listesi* kısayolları çıkar.
+
+### Verileri başka cihaza / uygulamaya taşıma
+
+Veriler cihazda saklandığı için taşıma yedekle yapılır: eski yerde *Ayarlar → Yedek al* (telefonda Paylaş menüsünden
+Dosyalar’a / Drive’a kaydedin), yeni yerde ilk açılışta **Yedekten geri yükle**. Fotoğraflar dahil her şey taşınır.
+7 günden uzun süre yedek alınmazsa ana sayfa hatırlatır.
 
 ## Klasör yapısı
 

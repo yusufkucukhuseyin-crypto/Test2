@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
 import { ensureSettings } from './db/actions'
+import { initPwa } from './lib/pwa'
 
 function StorageError({ message }: { message: string }) {
   return (
@@ -20,6 +21,8 @@ function StorageError({ message }: { message: string }) {
 }
 
 async function start() {
+  // Yükleme istemi erken gelebilir; uygulama çizilmeden dinlemeye başla
+  initPwa()
   const root = createRoot(document.getElementById('root')!)
   try {
     await ensureSettings()

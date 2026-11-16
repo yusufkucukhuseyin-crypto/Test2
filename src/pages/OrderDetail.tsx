@@ -239,7 +239,7 @@ function DetailsTab({ order, customer, unit }: { order: Order; customer?: import
     ['Notlar', order.notes],
   ]
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
       <Card>
         <dl className="divide-y divide-line">
           {rows
@@ -514,7 +514,7 @@ function CostTab({ order, moves, cost }: { order: Order; moves: import('../db/ty
   const profit = order.agreedPrice - cost
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px]">
       <Card>
         <CardHeader title="Kullanılan malzemeler" />
         {moves.length ? (

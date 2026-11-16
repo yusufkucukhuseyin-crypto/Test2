@@ -81,7 +81,7 @@ export default function CalendarPage() {
         }
       />
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_380px]">
         <Card className="overflow-hidden">
           <div className="grid grid-cols-7 border-b border-line bg-stone-50 text-center text-xs font-medium text-muted">
             {WEEKDAYS_SHORT.map((w) => (

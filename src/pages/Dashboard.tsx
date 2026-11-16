@@ -11,6 +11,8 @@ import { isOpen, specialDayText, upcomingSpecialDays } from '../lib/domain'
 import { countByDay, dayStatus } from '../lib/capacity'
 import { fmtDate, isoDate, money, num, shiftDay, today } from '../lib/format'
 import { OrderRow } from '../components/shared'
+import { InstallCard } from '../components/AppInstall'
+import { BackupReminder, RestoreButton } from '../components/Backup'
 import { Button, Card, CardHeader, EmptyState, LinkButton, PageHeader, Stat, cx, useToast } from '../components/ui'
 
 export default function Dashboard() {
@@ -51,11 +53,15 @@ export default function Dashboard() {
         title="Merhaba 👋"
         subtitle={fmtDate(t, 'd MMMM yyyy, EEEE')}
         actions={
-          <LinkButton to="/siparisler/yeni" variant="primary" icon={<Plus size={18} />} className="hidden md:inline-flex">
-            Yeni sipariş
-          </LinkButton>
+          <div className="hidden md:block">
+            <LinkButton to="/siparisler/yeni" variant="primary" icon={<Plus size={18} />}>
+              Yeni sipariş
+            </LinkButton>
+          </div>
         }
       />
+
+      <InstallCard dismissible className="mb-4" />
 
       {empty && (
         <Card className="mb-4 p-5">
@@ -66,11 +72,12 @@ export default function Dashboard() {
             <div className="flex-1">
               <div className="font-display text-lg">Hoş geldiniz!</div>
               <p className="text-sm text-muted">
-                İlk siparişinizi ekleyerek başlayabilir ya da uygulamayı tanımak için örnek verileri yükleyebilirsiniz. Örnek
-                verileri daha sonra Ayarlar’dan tek tuşla silebilirsiniz.
+                İlk siparişinizi ekleyerek başlayabilirsiniz. Önizlemede ya da başka bir cihazda girdiğiniz kayıtları taşımak için
+                oradan aldığınız yedek dosyasını <b>Yedekten geri yükle</b> ile açın.
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <RestoreButton label="Yedekten geri yükle" />
               <Button
                 onClick={async () => {
                   await loadDemoData()
@@ -94,7 +101,7 @@ export default function Dashboard() {
         <Stat label="Bu ay ciro" value={money(view.monthRevenue)} sub="Teslim tarihine göre" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
         <div className="space-y-4">
           {view.overdue.length > 0 && (
             <Card className="overflow-hidden border-red-200">
@@ -153,6 +160,7 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-4">
+          <BackupReminder settings={settings} hasData={data.orders.length > 0} />
           {overDays.length > 0 && (
             <Card className="border-amber-200 bg-amber-50/60 p-4">
               <div className="flex items-start gap-2 text-sm text-amber-900">

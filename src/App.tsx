@@ -1,5 +1,6 @@
 import { HashRouter, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { ConfirmHost } from './components/confirm'
+import { UpdateBanner } from './components/AppInstall'
 import Layout from './components/Layout'
 import { ToastProvider } from './components/ui'
 import Dashboard from './pages/Dashboard'
@@ -29,6 +30,7 @@ export default function App() {
   return (
     <ToastProvider>
       <ConfirmHost />
+      <UpdateBanner />
       <Router>
         <Routes>
           <Route path="siparisler/:id/yazdir" element={<PrintOrder />} />

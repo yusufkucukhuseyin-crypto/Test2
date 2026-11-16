@@ -160,7 +160,7 @@ export function PageHeader({
           {subtitle && <div className="mt-0.5 text-sm text-muted">{subtitle}</div>}
         </div>
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2">{actions}</div>}
     </div>
   )
 }
@@ -463,21 +463,25 @@ export function Segmented<T extends string>({
   value,
   onChange,
   className,
+  full,
 }: {
   options: { value: T; label: ReactNode }[]
   value: T
   onChange: (v: T) => void
   className?: string
+  /** Tüm genişliği kaplasın; dar ekranda seçenekler eşit bölünür */
+  full?: boolean
 }) {
   return (
-    <div className={cx('inline-flex rounded-xl border border-line bg-white p-1', className)}>
+    <div className={cx(full ? 'flex w-full' : 'inline-flex max-w-full', 'rounded-xl border border-line bg-white p-1', className)}>
       {options.map((o) => (
         <button
           type="button"
           key={o.value}
           onClick={() => onChange(o.value)}
           className={cx(
-            'rounded-lg px-3 py-1.5 text-sm font-medium transition whitespace-nowrap',
+            'rounded-lg py-1.5 text-sm font-medium transition',
+            full ? 'min-w-0 flex-1 px-1.5 text-center leading-tight' : 'px-3 whitespace-nowrap',
             value === o.value ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:text-ink',
           )}
         >

@@ -61,7 +61,7 @@ export default function PriceList() {
         }
       />
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_360px]">
         <Card className="overflow-hidden">
           <CardHeader
             title="Ürünler ve fiyatlar"

@@ -57,7 +57,7 @@ Teknolojiler: React 19, TypeScript, Vite, Tailwind CSS 4, Dexie (IndexedDB), dat
 Uygulama statik dosyalardan oluşur (`npm run build` → `dist/`), sunucu gerektirmez. Göreli yollar ve `#/` adresleri
 kullandığı için herhangi bir klasörde çalışır. Ana ekrana ekleme ve internetsiz çalışma için **HTTPS** gerekir.
 
-**GitHub Pages (hazır):** `.github/workflows/deploy-pages.yml`, `main` dalına her gönderimde uygulamayı yayınlar.
+**GitHub Pages (hazır):** `.github/workflows/deploy-pages.yml`, deponun varsayılan dalına her gönderimde uygulamayı yayınlar.
 Bir kerelik ayar: depoda *Settings → Pages → Build and deployment → Source: GitHub Actions*. Adres:
 `https://<kullanıcı-adı>.github.io/<depo-adı>/`. İstenirse kendi alan adınız (ör. `uygulama.lumacakes.com.tr`) bağlanabilir.
 

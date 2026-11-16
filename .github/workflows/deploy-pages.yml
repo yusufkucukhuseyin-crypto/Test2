@@ -1,10 +1,10 @@
 # Uygulamayı GitHub Pages'e yayınlar: https://<kullanıcı>.github.io/<depo>/
+# Deponun varsayılan dalına her gönderimde çalışır.
 # Bir kerelik ayar: depo Settings → Pages → Source: "GitHub Actions".
 name: Uygulamayı yayınla
 
 on:
   push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -18,6 +18,8 @@ concurrency:
 
 jobs:
   build:
+    # Yalnızca deponun varsayılan dalı yayınlanır
+    if: github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

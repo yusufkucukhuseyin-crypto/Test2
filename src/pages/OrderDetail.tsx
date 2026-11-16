@@ -209,7 +209,7 @@ export default function OrderDetail() {
         ]}
       />
 
-      {tab === 'detay' && <DetailsTab order={order} customer={customer} unit={pt.unit} />}
+      {tab === 'detay' && <DetailsTab order={order} customer={customer} summary={orderSummary(order, pt)} />}
       {tab === 'tasarim' && <DesignTab order={order} images={images} />}
       {tab === 'odeme' && <PaymentsTab order={order} payments={payments} settings={settings} balance={balance} />}
       {tab === 'maliyet' && <CostTab order={order} moves={moves} cost={cost} />}
@@ -219,7 +219,7 @@ export default function OrderDetail() {
 
 /* ---------------- Detaylar ---------------- */
 
-function DetailsTab({ order, customer, unit }: { order: Order; customer?: import('../db/types').Customer; unit: 'kişi' | 'adet' }) {
+function DetailsTab({ order, customer, summary }: { order: Order; customer?: import('../db/types').Customer; summary: string }) {
   const rows: [string, ReactNode][] = [
     ['Kek cinsi', order.cakeType],
     ['Krema cinsi', order.creamType],
@@ -251,7 +251,7 @@ function DetailsTab({ order, customer, unit }: { order: Order; customer?: import
               </div>
             ))}
         </dl>
-        <PriceBreakdown order={order} unit={unit} />
+        <PriceBreakdown order={order} summary={summary} />
       </Card>
       {customer && (
         <Card className="p-4">
@@ -266,8 +266,8 @@ function DetailsTab({ order, customer, unit }: { order: Order; customer?: import
   )
 }
 
-/** Dilim fiyatı × kişi, ekstralar, teslimat ücreti, indirim ve toplam */
-function PriceBreakdown({ order, unit }: { order: Order; unit: 'kişi' | 'adet' }) {
+/** Ürün tutarı, ekstralar, teslimat ücreti, indirim ve toplam (dilim fiyatı gösterilmez) */
+function PriceBreakdown({ order, summary }: { order: Order; summary: string }) {
   const base = (order.unitPrice || 0) * (order.amount || 0)
   const line = (label: ReactNode, value: ReactNode, strong?: boolean, key?: string) => (
     <div key={key} className={cx('flex justify-between gap-3 text-[15px]', strong && 'font-semibold')}>
@@ -278,7 +278,7 @@ function PriceBreakdown({ order, unit }: { order: Order; unit: 'kişi' | 'adet' 
   return (
     <div className="space-y-1 border-t border-line px-4 py-3">
       <div className="mb-1 text-sm text-muted">Fiyat</div>
-      {line(`${unit === 'kişi' ? 'Dilim fiyatı' : 'Adet fiyatı'} ${money(order.unitPrice)} × ${order.amount || 0}`, money(base))}
+      {line(summary, money(base))}
       {order.extras.map((e) => line(e.label || 'Ekstra', money(e.amount), false, e.id))}
       {!!order.deliveryFee && line('Adrese teslim ücreti', money(order.deliveryFee))}
       {!!order.discount && line('İndirim', `−${money(order.discount)}`)}

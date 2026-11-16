@@ -273,11 +273,6 @@ export default function OrderForm() {
                 >
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
                   {p.label}
-                  {p.unitPrice > 0 && (
-                    <span className="text-xs font-normal text-muted">
-                      {money(p.unitPrice)}/{p.unit === 'kişi' ? 'dilim' : 'adet'}
-                    </span>
-                  )}
                 </button>
               ))}
             </div>
@@ -423,12 +418,17 @@ export default function OrderForm() {
 
         <div className="space-y-4">
           <Section title="Fiyat">
-            <PriceSource
-              unitLabel={pt.unit === 'kişi' ? 'Dilim fiyatı' : 'Adet fiyatı'}
-              orderPrice={form.unitPrice}
-              listPrice={pt.unitPrice}
-              onUseList={() => set('unitPrice', pt.unitPrice)}
-            />
+            <p className="text-xs text-muted">
+              Tutar <Link to="/fiyat-listesi" className="underline">fiyat listesinden</Link> otomatik hesaplanır.
+            </p>
+            {isEdit && form.unitPrice !== undefined && form.unitPrice !== pt.unitPrice && (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <span>Fiyat listesi bu sipariş kaydedildikten sonra değişti.</span>
+                <button type="button" className="font-medium underline" onClick={() => set('unitPrice', pt.unitPrice)}>
+                  Güncel listeyle hesapla
+                </button>
+              </div>
+            )}
             <div className="mt-3">
               <div className="mb-1 flex items-center justify-between">
                 <span className="text-[13px] font-medium text-muted">Ekstralar (aksesuar, oyuncak, özel malzeme…)</span>
@@ -471,7 +471,7 @@ export default function OrderForm() {
             </Field>
             <div className="mt-4 space-y-1.5 rounded-xl bg-stone-50 p-3 text-sm">
               <Row
-                label={`${form.amount || 0} ${pt.unit === 'kişi' ? 'dilim' : 'adet'} × ${money(form.unitPrice)}`}
+                label={`${pt.label} · ${form.amount || 0} ${pt.unit === 'kişi' ? 'kişilik' : 'adet'}`}
                 value={money((form.unitPrice || 0) * (form.amount || 0))}
               />
               {form.extras.some((e) => e.amount) && <Row label="Ekstralar" value={money(form.extras.reduce((s, e) => s + (e.amount || 0), 0))} />}
@@ -572,41 +572,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="mb-3 font-display text-lg text-ink">{title}</h2>
       {children}
     </Card>
-  )
-}
-
-/** Fiyat listesinden gelen dilim / adet fiyatı (formda elle girilmez) */
-function PriceSource({
-  unitLabel,
-  orderPrice,
-  listPrice,
-  onUseList,
-}: {
-  unitLabel: string
-  orderPrice: number | undefined
-  listPrice: number
-  onUseList: () => void
-}) {
-  const differs = orderPrice !== undefined && orderPrice !== listPrice
-  return (
-    <div className="rounded-xl border border-line px-3 py-2.5 text-sm">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-muted">{unitLabel}</span>
-        <b className="tabular-nums">{money(orderPrice ?? listPrice)}</b>
-      </div>
-      {differs ? (
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-          <span>Fiyat listesinde şu an {money(listPrice)}</span>
-          <button type="button" className="font-medium text-accent-ink underline" onClick={onUseList}>
-            Listedeki fiyatı kullan
-          </button>
-        </div>
-      ) : (
-        <div className="mt-0.5 text-xs text-muted">
-          Fiyat listesinden gelir · <Link to="/fiyat-listesi" className="underline">Fiyat listesi</Link>
-        </div>
-      )}
-    </div>
   )
 }
 

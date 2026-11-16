@@ -205,7 +205,7 @@ export default function PrintOrder() {
 
           <Box title="Fiyat ve ödeme" className="mt-4 break-inside-avoid">
             <div className="space-y-1">
-              <Money k={`${pt.unit === 'kişi' ? 'Dilim fiyatı' : 'Adet fiyatı'} ${money(order.unitPrice)} × ${order.amount || 0}`} v={money((order.unitPrice || 0) * (order.amount || 0))} />
+              <Money k={`${pt.label}${order.amount ? ` · ${order.amount} ${unitWord}` : ''}`} v={money((order.unitPrice || 0) * (order.amount || 0))} />
               {order.extras.map((e) => (
                 <Money key={e.id} k={e.label || 'Ekstra'} v={money(e.amount)} />
               ))}

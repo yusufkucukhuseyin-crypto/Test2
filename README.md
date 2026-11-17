@@ -8,7 +8,7 @@ olmadan da çalışır.
 
 | Bölüm | Neler yapılabilir |
 |---|---|
-| **Ana sayfa** | Bugünün teslimleri, önümüzdeki 7 gün, tarihi geçmiş açık siparişler, kapasitesi aşılan günler, bekleyen tahsilat (dokununca liste), azalan stoklar, yedek hatırlatması |
+| **Ana sayfa** | Bugünün teslimleri, önümüzdeki 7 gün, tarihi geçmiş açık siparişler, kapasitesi aşılan günler, bekleyen tahsilat (dokununca liste), yedek hatırlatması; karşılamada adınız (“Merhaba Sabiş”) |
 | **Siparişler** | Müşteri, ürün (fiyat listesinden), kişi sayısı / adet, kat, kek cinsi (Vanilya / Kakao), krema cinsi (Vanilyalı / Çikolatalı), iç dolgu (birden çok), pasta üstü yazı, tebrik kartı yazısı, tasarım beklentileri, teslim tarihi/saati, gel-al / adrese teslim (+ teslimat ücreti). **Anlaşılan tutar** fiyat listesinden (dilim fiyatı × kişi) otomatik gelir, elle değiştirilebilir; **toplam = anlaşılan tutar + ekstralar + teslimat − indirim**. **Ücretsiz (ikram)** işaretlenebilir. Siparişte kullanılan **kutular** seçilir ve stoktan düşer. Kapora ve ödemeler, kalan bakiye. Durum: Onaylandı / Teslim edildi / İptal edildi |
 | **Yazdırma** | Sipariş detayında **Yazdır**: logolu A4 sipariş fişi (müşteri, teslim, içerik, yazılar, görseller, fiyat ve kalan ödeme) |
 | **Fiyat listesi** | Pasta türleri, içerikleri ve dilim / adet fiyatları; **hızlı hesapla** (tür + kişi sayısı + indirim) ve bu fiyatla sipariş oluşturma |
@@ -17,9 +17,9 @@ olmadan da çalışır.
 | **Özel günler** | Menüdeki ayrı sayfada müşterilerin yaklaşan doğum günü, yıl dönümü gibi kutlamaları (7 gün / 30 gün / 3 ay / 1 yıl); kimin, hangi kutlama, kaç gün kaldı, sipariş alındı mı. 7 gün içindekilerin sayısı menüde görünür |
 | **Takvim** | Aylık görünüm; her gün teslim edilecek sipariş sayısına göre renklenir: **Uygun** (0), **Yoğun** (1), **Dolu** (2), **Kapasite aşıldı** (3+). Güne özel kapasite, not ve günü kapatma |
 | **Katalog** | Bitmiş ürün fotoğrafları; ürün türüne göre filtre; **“Bu modelden sipariş”** |
-| **Stok** | **Kutu stoğu** (Küçük / Orta / Büyük / Cupcake): siparişte seçilen kutu düşer, iptalde geri döner, en az seviyenin altına inince ana sayfada ve menüde uyarı. Malzeme miktarı ve birim maliyeti, alışta ağırlıklı ortalama maliyet, kullanım, sayım, minimum seviye uyarısı. Siparişe malzeme yazınca **maliyet ve brüt kâr** |
+| **Stok** | **Kutu stoğu** (Küçük / Orta / Büyük / Cupcake): siparişte seçilen kutu düşer, iptalde geri döner, en az seviyenin altına inince menüde Stok’un yanında uyarı sayısı. Malzeme miktarı ve birim maliyeti, alışta ağırlıklı ortalama maliyet, kullanım, sayım, minimum seviye uyarısı. Siparişe malzeme yazınca **maliyet ve brüt kâr** |
 | **Raporlar** | **Tümü / Ücretli / Ücretsiz** süzgeci ve ücretsiz verilenlerin değeri; aylık ciro, tahsilat, ortalama sipariş, son 12 ay grafiği, ürün ve kutlama türü dağılımı, en çok sipariş veren müşteriler |
-| **Ayarlar** | İşletme adı, **logo** (tema rengi logodan otomatik alınır) ve renk teması, günlük kapasite, kapalı günler, seçenek listeleri, yedek alma / geri yükleme |
+| **Ayarlar** | İşletme adı, karşılama adı, **logo** (tema rengi logodan otomatik alınır) ve renk teması, günlük kapasite, kapalı günler, seçenek listeleri, yedek alma / geri yükleme |
 
 Sol menü tablet ve bilgisayarda **küçültülebilir** (yalnızca simgeler) ya da **gizlenebilir**.
 

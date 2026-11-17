@@ -1,15 +1,13 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { endOfMonth, startOfMonth } from 'date-fns'
-import { AlertTriangle, CalendarDays, ClipboardList, Package, Plus, Sparkles } from 'lucide-react'
-import { db } from '../db/db'
+import { AlertTriangle, CalendarDays, ClipboardList, Plus, Sparkles } from 'lucide-react'
 import { loadDemoData } from '../db/seed'
 import { useCoreData, sortByDelivery } from '../lib/data'
 import { useSettings } from '../lib/hooks'
 import { isOpen } from '../lib/domain'
 import { countByDay, dayStatus } from '../lib/capacity'
-import { fmtDate, isoDate, money, num, shiftDay, today } from '../lib/format'
+import { fmtDate, isoDate, money, shiftDay, today } from '../lib/format'
 import { OrderRow } from '../components/shared'
 import { InstallCard } from '../components/AppInstall'
 import { BackupReminder, RestoreButton } from '../components/Backup'
@@ -19,7 +17,6 @@ export default function Dashboard() {
   const settings = useSettings()
   const data = useCoreData()
   const toast = useToast()
-  const stock = useLiveQuery(() => db.stockItems.toArray(), [])
   const t = today()
 
   const view = useMemo(() => {
@@ -44,14 +41,13 @@ export default function Dashboard() {
   // Önümüzdeki 14 günde kapasitesi aşılan (ya da kapalı olup siparişi olan) günler
   const counts = countByDay(data.orders)
   const overDays = Array.from({ length: 14 }, (_, i) => shiftDay(t, i)).filter((d) => dayStatus(settings, counts, d).tone === 'asim')
-  const lowStock = (stock ?? []).filter((s) => s.minQuantity !== undefined && s.minQuantity > 0 && s.quantity <= s.minQuantity)
 
   const empty = data.orders.length === 0 && data.customers.length === 0
 
   return (
     <div>
       <PageHeader
-        title="Merhaba 👋"
+        title={`Merhaba${settings.ownerName?.trim() ? ` ${settings.ownerName.trim()}` : ''} 👋`}
         subtitle={fmtDate(t, 'd MMMM yyyy, EEEE')}
         actions={
           <div className="hidden md:block">
@@ -168,30 +164,6 @@ export default function Dashboard() {
 
         <div className="space-y-4">
           <BackupReminder settings={settings} hasData={data.orders.length > 0} />
-          {lowStock.length > 0 && (
-            <Card className="border-amber-200" data-testid="low-stock">
-              <CardHeader
-                title="Azalan stoklar"
-                icon={<Package size={18} />}
-                action={
-                  <Link to="/stok" className="text-sm text-accent-ink">
-                    Stok
-                  </Link>
-                }
-              />
-              <ul className="space-y-1.5 px-4 pb-4 text-sm">
-                {lowStock.map((s) => (
-                  <li key={s.id} className="flex justify-between">
-                    <span>{s.name}</span>
-                    <span className="tabular-nums text-red-600">
-                      {num(s.quantity)} {s.unit}
-                      <span className="text-muted"> / en az {num(s.minQuantity ?? 0)}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
           {overDays.length > 0 && (
             <Card className="border-amber-200 bg-amber-50/60 p-4">
               <div className="flex items-start gap-2 text-sm text-amber-900">

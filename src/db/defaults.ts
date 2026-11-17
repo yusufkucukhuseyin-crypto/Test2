@@ -28,6 +28,7 @@ export function defaultSettings(): Settings {
   return {
     id: 'main',
     businessName: 'Luma Cakes',
+    ownerName: 'Sabiş',
     // Pazartesi..Pazar: her gün aynı gün en fazla 2 sipariş
     weekdayCapacity: Array(7).fill(DEFAULT_DAILY_CAPACITY),
     capacityOverrides: {},

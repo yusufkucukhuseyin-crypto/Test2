@@ -15,7 +15,7 @@ import { dominantColor, paletteFromHex, processLogo, resolveAccent } from '../li
 import { Button, Card, CardHeader, Field, IconButton, Input, NumberInput, PageHeader, cx, useToast } from '../components/ui'
 import { ask, tell } from '../components/confirm'
 
-type Draft = Pick<Settings, 'businessName' | 'weekdayCapacity' | 'options' | 'reminderDays'>
+type Draft = Pick<Settings, 'businessName' | 'ownerName' | 'weekdayCapacity' | 'options' | 'reminderDays'>
 
 const OPTION_LABELS: [keyof OptionLists, string][] = [
   ['cakeTypes', 'Kek cinsleri'],
@@ -33,6 +33,7 @@ const OPTION_LABELS: [keyof OptionLists, string][] = [
 function pick(s: Settings): Draft {
   return {
     businessName: s.businessName,
+    ownerName: s.ownerName ?? '',
     weekdayCapacity: s.weekdayCapacity,
     options: s.options,
     reminderDays: s.reminderDays,
@@ -75,6 +76,9 @@ export default function SettingsPage() {
           <h2 className="mb-3 font-display text-lg">İşletme ve görünüm</h2>
           <Field label="İşletme adı">
             <Input value={draft.businessName} onChange={(e) => set('businessName', e.target.value)} />
+          </Field>
+          <Field label="Karşılama adı" hint={`Ana sayfada “Merhaba${draft.ownerName?.trim() ? ` ${draft.ownerName.trim()}` : ''} 👋” olarak görünür`} className="mt-3">
+            <Input value={draft.ownerName ?? ''} onChange={(e) => set('ownerName', e.target.value)} placeholder="Örn. Sabiş" />
           </Field>
           <BrandEditor settings={settings} />
           <Field label="Özel günleri kaç gün önceden hatırlat?" className="mt-4">

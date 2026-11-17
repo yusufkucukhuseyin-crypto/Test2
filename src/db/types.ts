@@ -222,6 +222,8 @@ export interface OptionLists {
 export interface Settings {
   id: 'main'
   businessName: string
+  /** Ana sayfadaki karşılamada kullanılan ad ("Merhaba Sabiş") */
+  ownerName?: string
   /** Pazartesi..Pazar günlük kapasite (aynı gün teslim edilebilecek sipariş sayısı) */
   weekdayCapacity: number[]
   /** Belirli günler için kapasite (yyyy-MM-dd -> sipariş sayısı, 0 = kapalı) */

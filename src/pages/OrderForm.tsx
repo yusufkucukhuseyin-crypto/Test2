@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ImagePlus, Minus, Package, Plus, Trash2, X } from 'lucide-react'
+import { Check, ImagePlus, Plus, Trash2, X } from 'lucide-react'
 import { db } from '../db/db'
 import { createOrder, updateOrder, type OrderInput } from '../db/actions'
 import type { ImageKind, OrderBox, OrderStatus, PriceExtra } from '../db/types'
@@ -313,38 +313,46 @@ export default function OrderForm() {
             <Field label="Kutlama türü" className="mt-3" group>
               <ChipSelect options={settings.options.occasions} value={form.occasion} onChange={(v) => set('occasion', v)} />
             </Field>
-            <Field label="Kutu (stoktan düşülür)" className="mt-3" group>
-              <div className="grid gap-2 xl:grid-cols-2">
+            <Field label="Kutu (seçilen kutu stoktan 1 adet düşülür)" className="mt-3" group>
+              <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
                 {(boxItems ?? []).map((item) => {
                   const qty = boxQty(item.id)
+                  const on = qty > 0
                   const available = item.quantity + (origBoxes.find((b) => b.itemId === item.id)?.qty ?? 0)
                   const left = available - qty
                   const low = item.minQuantity !== undefined && item.minQuantity > 0 && left <= item.minQuantity
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={item.id}
                       data-box={item.name}
-                      className={cx('flex items-center gap-2 rounded-xl border px-3 py-2', qty > 0 ? 'border-accent bg-accent-soft/40' : 'border-line bg-white')}
+                      aria-pressed={on}
+                      onClick={() => setBoxQty(item.id, on ? 0 : 1)}
+                      className={cx(
+                        'flex items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition',
+                        on ? 'border-accent bg-accent-soft/60' : 'border-line bg-white hover:bg-stone-50',
+                      )}
                     >
-                      <Package size={18} className="shrink-0 text-muted" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[15px] leading-tight">{item.name}</div>
-                        <div className={cx('text-xs', left < 0 ? 'font-medium text-red-600' : low ? 'font-medium text-amber-700' : 'text-muted')}>
+                      <span
+                        className={cx(
+                          'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2',
+                          on ? 'border-accent bg-accent text-white' : 'border-stone-300 bg-white',
+                        )}
+                      >
+                        {on && <Check size={14} strokeWidth={3} />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[15px] leading-tight">
+                          {item.name}
+                          {qty > 1 && <span className="text-muted"> ×{qty}</span>}
+                        </span>
+                        <span className={cx('block text-xs', left < 0 ? 'font-medium text-red-600' : low ? 'font-medium text-amber-700' : 'text-muted')}>
                           Stok {num(available)}
-                          {qty > 0 && ` → ${num(left)}`}
-                          {left < 0 ? ' · stok yetmiyor' : low ? ' · azaldı' : ''}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <IconButton label={`${item.name} azalt`} disabled={qty === 0} onClick={() => setBoxQty(item.id, qty - 1)}>
-                          <Minus size={16} />
-                        </IconButton>
-                        <span className="w-6 text-center font-medium tabular-nums">{qty}</span>
-                        <IconButton label={`${item.name} artır`} onClick={() => setBoxQty(item.id, qty + 1)}>
-                          <Plus size={16} />
-                        </IconButton>
-                      </div>
-                    </div>
+                          {on && ` → ${num(left)}`}
+                          {left < 0 ? ' · yetmiyor' : low ? ' · azaldı' : ''}
+                        </span>
+                      </span>
+                    </button>
                   )
                 })}
               </div>

@@ -5,7 +5,7 @@ import { ArrowLeft, FileDown, Printer } from 'lucide-react'
 import { db } from '../db/db'
 import { saveFile } from '../db/backup'
 import type { OrderImage } from '../db/types'
-import { STATUS, depositTotal, paidTotal, productTypeOf } from '../lib/domain'
+import { STATUS, depositTotal, orderBase, paidTotal, productTypeOf } from '../lib/domain'
 import { fmtDate, money } from '../lib/format'
 import { blobToDataURL } from '../lib/image'
 import { useSettings } from '../lib/hooks'
@@ -43,12 +43,14 @@ export default function PrintOrder() {
   const data = useLiveQuery(async () => {
     const order = await db.orders.get(id)
     if (!order) return { order: null }
-    const [customer, payments, images] = await Promise.all([
+    const [customer, payments, images, boxItems] = await Promise.all([
       db.customers.get(order.customerId),
       db.payments.where('orderId').equals(id).toArray(),
       db.images.where('orderId').equals(id).toArray(),
+      db.stockItems.bulkGet((order.boxes ?? []).map((b) => b.itemId)),
     ])
-    return { order, customer, payments, images }
+    const boxes = (order.boxes ?? []).map((b, i) => `${boxItems[i]?.name ?? 'Kutu'} × ${b.qty}`).join(', ')
+    return { order, customer, payments, images, boxes }
   }, [id])
 
   // Görseller dosyaya da gömülebilsin diye data URL olarak (en fazla 3; önce onaylanan tasarım)
@@ -187,6 +189,7 @@ export default function PrintOrder() {
               <Row k="İç dolgu" v={order.filling} />
               <Row k="Pasta üstü yazı" v={order.cakeText && `“${order.cakeText}”`} />
               <Row k="Tebrik kartı" v={order.cardText && `“${order.cardText}”`} />
+              <Row k="Kutu" v={data.boxes} />
               <Row k="Tasarım" v={order.designNotes} />
               <Row k="Notlar" v={order.notes} />
             </dl>
@@ -205,17 +208,22 @@ export default function PrintOrder() {
 
           <Box title="Fiyat ve ödeme" className="mt-4 break-inside-avoid">
             <div className="space-y-1">
-              <Money k={`${pt.label}${order.amount ? ` · ${order.amount} ${unitWord}` : ''}`} v={money((order.unitPrice || 0) * (order.amount || 0))} />
-              {order.extras.map((e) => (
-                <Money key={e.id} k={e.label || 'Ekstra'} v={money(e.amount)} />
-              ))}
-              {!!order.deliveryFee && <Money k="Adrese teslim ücreti" v={money(order.deliveryFee)} />}
-              {!!order.discount && <Money k="İndirim" v={`−${money(order.discount)}`} />}
-              {order.agreedPrice !== order.calculatedTotal && <Money k="Hesaplanan toplam" v={money(order.calculatedTotal)} />}
-              <Money k={order.agreedPrice !== order.calculatedTotal ? 'Anlaşılan tutar' : 'Tutar'} v={money(order.agreedPrice)} strong />
-              {deposit > 0 && <Money k="Alınan kapora" v={money(deposit)} />}
-              {paid - deposit > 0 && <Money k="Diğer ödemeler" v={money(paid - deposit)} />}
-              <Money k={balance > 0 ? 'Kalan' : 'Ödeme'} v={balance > 0 ? money(balance) : 'Tamamı ödendi'} strong />
+              {order.free ? (
+                <Money k={`${pt.label}${order.amount ? ` · ${order.amount} ${unitWord}` : ''}`} v="Ücretsiz" strong />
+              ) : (
+                <>
+                  <Money k={`Anlaşılan tutar · ${pt.label}${order.amount ? ` · ${order.amount} ${unitWord}` : ''}`} v={money(orderBase(order))} />
+                  {order.extras.map((e) => (
+                    <Money key={e.id} k={e.label || 'Ekstra'} v={money(e.amount)} />
+                  ))}
+                  {!!order.deliveryFee && <Money k="Adrese teslim ücreti" v={money(order.deliveryFee)} />}
+                  {!!order.discount && <Money k="İndirim" v={`−${money(order.discount)}`} />}
+                  <Money k="Toplam" v={money(order.agreedPrice)} strong />
+                  {deposit > 0 && <Money k="Alınan kapora" v={money(deposit)} />}
+                  {paid - deposit > 0 && <Money k="Diğer ödemeler" v={money(paid - deposit)} />}
+                  <Money k={balance > 0 ? 'Kalan' : 'Ödeme'} v={balance > 0 ? money(balance) : 'Tamamı ödendi'} strong />
+                </>
+              )}
             </div>
           </Box>
 

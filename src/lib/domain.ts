@@ -60,6 +60,23 @@ export interface PriceParts {
   discount?: number
 }
 
+export function extrasSum(extras: { amount: number }[]): number {
+  return extras.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+}
+
+/** Toplam = anlaşılan tutar (ürün) + ekstralar + teslimat − indirim; ücretsizse 0 */
+export function orderTotal(p: { base: number; extras: { amount: number }[]; deliveryFee?: number; discount?: number; free?: boolean }): number {
+  if (p.free) return 0
+  return Math.max(0, (p.base || 0) + extrasSum(p.extras) + (p.deliveryFee || 0) - (p.discount || 0))
+}
+
+/** Ürün için anlaşılan tutar. Eski siparişlerde toplamdan geri hesaplanır. */
+export function orderBase(o: Pick<Order, 'basePrice' | 'agreedPrice' | 'extras' | 'deliveryFee' | 'discount' | 'free' | 'unitPrice' | 'amount'>): number {
+  if (o.basePrice !== undefined) return o.basePrice
+  if (o.free) return (o.unitPrice || 0) * (o.amount || 0)
+  return Math.max(0, o.agreedPrice - extrasSum(o.extras) - (o.deliveryFee || 0) + (o.discount || 0))
+}
+
 /** Dilim (kişi) fiyatı × kişi sayısı + ekstralar + teslimat ücreti − indirim */
 export function calcTotal(p: PriceParts): number {
   const base = (p.unitPrice || 0) * (p.amount || 0)

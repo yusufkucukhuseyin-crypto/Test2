@@ -22,6 +22,7 @@ export default function Orders() {
   const [status, setStatus] = useState<OrderStatus | ''>('')
   const [type, setType] = useState('')
   const [unpaid, setUnpaid] = useState(params.get('kalan') === '1')
+  const [freeOnly, setFreeOnly] = useState(false)
 
   const filtered = useMemo(() => {
     if (!data) return []
@@ -34,6 +35,7 @@ export default function Orders() {
       if (status && o.status !== status) return false
       if (type && o.productType !== type) return false
       if (unpaid && (o.status === 'iptal' || o.agreedPrice - (data.paidByOrder.get(o.id) ?? 0) <= 0)) return false
+      if (freeOnly && !o.free) return false
       switch (range) {
         case 'acik':
           return isOpen(o.status)
@@ -50,7 +52,7 @@ export default function Orders() {
     list.sort(sortByDelivery)
     if (range === 'gecmis') list.reverse()
     return list
-  }, [data, q, range, status, type, unpaid])
+  }, [data, q, range, status, type, unpaid, freeOnly])
 
   const groups = useMemo(() => {
     const m = new Map<string, typeof filtered>()
@@ -122,11 +124,21 @@ export default function Orders() {
             type="button"
             onClick={() => setUnpaid(!unpaid)}
             className={cx(
-              'col-span-2 h-9 rounded-xl border px-3 text-sm sm:col-span-1',
+              'h-9 rounded-xl border px-3 text-sm',
               unpaid ? 'border-red-300 bg-red-50 text-red-700' : 'border-line bg-white text-ink',
             )}
           >
             Kalan ödemesi olanlar
+          </button>
+          <button
+            type="button"
+            onClick={() => setFreeOnly(!freeOnly)}
+            className={cx(
+              'h-9 rounded-xl border px-3 text-sm',
+              freeOnly ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-line bg-white text-ink',
+            )}
+          >
+            Ücretsiz
           </button>
         </div>
       </div>

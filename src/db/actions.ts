@@ -1,5 +1,15 @@
 import { db } from './db'
-import { CAKE_TYPES, CREAM_TYPES, DEFAULT_DAILY_CAPACITY, FILLINGS, SETTINGS_REV, defaultSettings } from './defaults'
+import {
+  BOX_CATEGORY,
+  CAKE_TYPES,
+  CREAM_TYPES,
+  DEFAULT_BOXES,
+  DEFAULT_BOX_MIN,
+  DEFAULT_DAILY_CAPACITY,
+  FILLINGS,
+  SETTINGS_REV,
+  defaultSettings,
+} from './defaults'
 import type {
   Customer,
   ImageKind,
@@ -20,6 +30,7 @@ export async function ensureSettings(): Promise<Settings> {
   const defaults = defaultSettings()
   if (!existing) {
     await db.settings.put(defaults)
+    await ensureBoxItems()
     return defaults
   }
   // Yeni sürümlerde eklenen alanları tamamla
@@ -70,9 +81,36 @@ export async function ensureSettings(): Promise<Settings> {
       merged.dayNotes = notes
     }
   }
+  // Sürüm 4: kutu stoğu (Küçük / Orta / Büyük / Cupcake) — siparişte seçilen kutu stoktan düşer
+  if (rev < 4) {
+    if (!merged.options.stockCategories.includes(BOX_CATEGORY)) {
+      merged.options = { ...merged.options, stockCategories: [BOX_CATEGORY, ...merged.options.stockCategories] }
+    }
+    await ensureBoxItems()
+  }
   merged.rev = SETTINGS_REV
   if (JSON.stringify(merged) !== JSON.stringify(existing)) await db.settings.put(merged)
   return merged
+}
+
+/** Kutu kategorisinde hiç kalem yoksa varsayılan kutuları (stok 0) oluşturur */
+async function ensureBoxItems() {
+  const has = await db.stockItems.where('category').equals(BOX_CATEGORY).count()
+  if (has) return
+  const now = Date.now()
+  await db.stockItems.bulkAdd(
+    DEFAULT_BOXES.map((name, i) => ({
+      id: uid(),
+      name,
+      category: BOX_CATEGORY,
+      unit: 'adet',
+      quantity: 0,
+      unitCost: 0,
+      minQuantity: DEFAULT_BOX_MIN,
+      createdAt: now + i,
+      updatedAt: now + i,
+    })),
+  )
 }
 
 export async function updateSettings(patch: Partial<Settings>) {
@@ -162,6 +200,7 @@ export async function createOrder(input: OrderInput, extras: NewOrderExtras = {}
     if (imgs.length) await db.images.bulkAdd(imgs)
     return id
   })
+  await syncOrderBoxes(newId)
   return newId
 }
 
@@ -174,10 +213,52 @@ export async function updateOrder(id: string, input: OrderInput) {
       await db.images.where('orderId').equals(id).modify({ productType: input.productType })
     }
   })
+  await syncOrderBoxes(id)
+}
+
+/**
+ * Siparişin kutu seçimini stoğa yansıtır: önceki otomatik kutu çıkışlarını geri alır, güncel seçimi düşer.
+ * İptal edilen siparişin kutuları stoğa geri döner.
+ */
+export async function syncOrderBoxes(orderId: string) {
+  await db.transaction('rw', [db.orders, db.stockItems, db.stockMoves], async () => {
+    const order = await db.orders.get(orderId)
+    const old = (await db.stockMoves.where('orderId').equals(orderId).toArray()).filter((m) => m.auto === 'kutu')
+    const want = order && order.status !== 'iptal' ? (order.boxes ?? []).filter((b) => b.qty > 0) : []
+    // Değişiklik yoksa dokunma
+    const same =
+      old.length === want.length && want.every((b) => old.some((m) => m.itemId === b.itemId && m.quantity === b.qty))
+    if (same) return
+    const oldDate = new Map(old.map((m) => [m.itemId, m.date]))
+    for (const m of old) {
+      const item = await db.stockItems.get(m.itemId)
+      if (item) await db.stockItems.update(item.id, { quantity: item.quantity + m.quantity, updatedAt: Date.now() })
+    }
+    await db.stockMoves.bulkDelete(old.map((m) => m.id))
+    for (const b of want) {
+      const item = await db.stockItems.get(b.itemId)
+      if (!item) continue
+      await db.stockItems.update(item.id, { quantity: item.quantity - b.qty, updatedAt: Date.now() })
+      await db.stockMoves.add({
+        id: uid(),
+        itemId: item.id,
+        type: 'cikis',
+        quantity: b.qty,
+        unitCost: item.unitCost,
+        date: oldDate.get(item.id) ?? today(),
+        orderId,
+        note: `Sipariş #${order!.no} kutusu`,
+        auto: 'kutu',
+        createdAt: Date.now(),
+      })
+    }
+  })
 }
 
 export async function setOrderStatus(id: string, status: Order['status']) {
   await db.orders.update(id, { status, updatedAt: Date.now() })
+  // İptalde kutular stoğa döner, geri alınınca yeniden düşer
+  await syncOrderBoxes(id)
 }
 
 export async function deleteOrder(id: string) {

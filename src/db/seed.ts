@@ -1,5 +1,6 @@
 import { db } from './db'
-import { ensureSettings } from './actions'
+import { ensureSettings, syncOrderBoxes } from './actions'
+import { BOX_CATEGORY } from './defaults'
 import type { Customer, Order, OrderImage, Payment, StockItem, StockMove } from './types'
 import { shiftDay, today, uid } from '../lib/format'
 import { calcTotal, productTypeOf } from '../lib/domain'
@@ -49,6 +50,9 @@ async function drawCake(color: string, tiers: number, bg: string): Promise<{ blo
 export async function loadDemoData() {
   const settings = await ensureSettings()
   const t = today()
+  // Kutu stoğu: Küçük / Orta / Büyük / Cupcake (Büyük kutu az — uyarı örneği)
+  const boxItems = await db.stockItems.where('category').equals(BOX_CATEGORY).sortBy('createdAt')
+  const boxStock = [12, 10, 4, 8]
   const now = Date.now()
 
   const mk = (c: Partial<Customer> & { name: string; phone: string }): Customer => ({
@@ -114,6 +118,9 @@ export async function loadDemoData() {
     paid?: boolean
     extras?: [string, number][]
     img?: [string, number]
+    /** [kutu sırası, adet] */
+    box?: [number, number]
+    free?: boolean
   }
   const specs: Spec[] = [
     { c: 0, pt: 'pasta', d: -160, amount: 15, status: 'teslim', tiers: 1, occasion: 'Doğum günü', paid: true, img: ['#f4c2c9', 1] },
@@ -124,19 +131,19 @@ export async function loadDemoData() {
     { c: 5, pt: 'cupcake', d: -62, amount: 12, status: 'teslim', paid: true },
     { c: 0, pt: 'kurabiye', d: -45, amount: 30, status: 'teslim', occasion: 'Doğum günü', paid: true },
     { c: 1, pt: 'pasta', d: -30, amount: 40, status: 'teslim', tiers: 3, occasion: 'Nişan', paid: true, img: ['#f7efe6', 3] },
-    { c: 4, pt: 'cupcake', d: -21, amount: 36, status: 'teslim', occasion: 'Kurumsal', paid: true },
+    { c: 4, pt: 'cupcake', d: -21, amount: 12, status: 'teslim', occasion: 'Kurumsal', free: true },
     { c: 3, pt: 'pasta', d: -12, amount: 18, status: 'teslim', tiers: 1, occasion: 'Doğum günü', paid: true, img: ['#d9c8ef', 1] },
     { c: 5, pt: 'pasta', d: -4, amount: 12, status: 'teslim', tiers: 1, deposit: 1000 },
     {
       c: 2, pt: 'pasta', d: 0, amount: 20, status: 'onaylandi', tiers: 2, occasion: 'Doğum günü',
       cake: 'Vanilya', cream: 'Vanilyalı', fill: 'Çilek, Muz', text: 'İyi ki doğdun Can', card: 'Nice mutlu yaşlara Can! Sevgilerle, annen ve baban',
       design: 'Mavi tonlarında, üstünde araba figürü. Fındık kullanılmayacak!', deposit: 2000,
-      extras: [['Şeker hamuru figür', 600]],
+      extras: [['Şeker hamuru figür', 600]], box: [1, 1],
     },
     {
       c: 0, pt: 'pasta', d: 1, amount: 15, status: 'onaylandi', tiers: 1, occasion: 'Doğum günü',
       cake: 'Kakao', cream: 'Çikolatalı', fill: 'Muz, Damla Çikolata', text: 'Elif 5 yaşında',
-      design: 'Pembe-lila pastel, kelebekli. Referans fotoğraf WhatsApp’tan geldi.', deposit: 1500,
+      design: 'Pembe-lila pastel, kelebekli. Referans fotoğraf WhatsApp’tan geldi.', deposit: 1500, box: [0, 1],
     },
     { c: 4, pt: 'kurabiye', d: 2, amount: 80, status: 'onaylandi', occasion: 'Kurumsal', design: 'Logolu kurabiye, tek tek paketli.', deposit: 3000 },
     {
@@ -144,11 +151,11 @@ export async function loadDemoData() {
       cake: 'Kakao', cream: 'Vanilyalı', fill: 'Frambuaz', text: '10. yılımız', card: 'Nice yıllara sevgilim',
       design: 'Beyaz zemin, taze çiçek.', deposit: 4000, extras: [['Taze çiçek', 750]],
     },
-    { c: 3, pt: 'cupcake', d: 3, amount: 24, status: 'onaylandi', occasion: 'Doğum günü' },
+    { c: 3, pt: 'cupcake', d: 3, amount: 24, status: 'onaylandi', occasion: 'Doğum günü', box: [3, 2] },
     {
       c: 5, pt: 'pasta', d: 6, amount: 50, status: 'onaylandi', tiers: 3, occasion: 'Düğün',
       cake: 'Vanilya', cream: 'Vanilyalı', fill: 'Orman Meyveli, Antep Fıstığı',
-      design: 'Üç katlı beyaz, altın varaklı.', deposit: 8000, extras: [['Altın varak', 1200]],
+      design: 'Üç katlı beyaz, altın varaklı.', deposit: 8000, extras: [['Altın varak', 1200]], box: [2, 1],
     },
     { c: 2, pt: 'kurabiye', d: 6, amount: 20, status: 'onaylandi', occasion: 'Doğum günü' },
     { c: 0, pt: 'pasta', d: 10, amount: 20, status: 'onaylandi', tiers: 2, occasion: 'Baby shower' },
@@ -164,7 +171,7 @@ export async function loadDemoData() {
     const extras = (s.extras ?? []).map(([label, amount]) => ({ id: uid(), label, amount }))
     const deliveryFee = s.d === 6 ? 500 : 0
     const total = calcTotal({ unitPrice: pt.unitPrice, amount: s.amount, extras, deliveryFee })
-    const agreed = Math.round(total / 50) * 50
+    const agreed = s.free ? 0 : Math.round(total / 50) * 50
     const deliveryDate = shiftDay(t, s.d)
     const o: Order = {
       id: uid(),
@@ -187,6 +194,8 @@ export async function loadDemoData() {
       unitPrice: pt.unitPrice,
       extras,
       deliveryFee,
+      free: s.free,
+      boxes: s.box && boxItems[s.box[0]] ? [{ itemId: boxItems[s.box[0]].id, qty: s.box[1] }] : [],
       calculatedTotal: total,
       agreedPrice: agreed,
       status: s.status,
@@ -230,7 +239,6 @@ export async function loadDemoData() {
     sItem('Beyaz çikolata', 'Çikolata', 'kg', 0.8, 700, 1),
     sItem('Çilek', 'Meyve', 'kg', 2, 160, 1),
     sItem('Şeker hamuru', 'Süsleme', 'kg', 2.5, 280, 1),
-    sItem('Pasta kutusu (24 cm)', 'Ambalaj', 'adet', 14, 35, 10),
     sItem('Cupcake kapsülü', 'Ambalaj', 'adet', 200, 1.5, 50),
   ]
   const moves: StockMove[] = stock.map((s) => ({
@@ -245,5 +253,14 @@ export async function loadDemoData() {
     await db.stockItems.bulkAdd(stock)
     await db.stockMoves.bulkAdd(moves)
     await db.settings.update('main', { nextOrderNo: no })
+    // Kutu stoklarına açılış girişi
+    for (const [i, b] of boxItems.entries()) {
+      const q = boxStock[i] ?? 0
+      if (!q) continue
+      await db.stockItems.update(b.id, { quantity: b.quantity + q, unitCost: b.unitCost || 25, updatedAt: now })
+      await db.stockMoves.add({ id: uid(), itemId: b.id, type: 'giris', quantity: q, unitCost: b.unitCost || 25, date: shiftDay(t, -20), note: 'Açılış stoğu', createdAt: now })
+    }
   })
+  // Siparişlerin kutularını stoktan düş
+  for (const o of orders) if (o.boxes?.length) await syncOrderBoxes(o.id)
 }

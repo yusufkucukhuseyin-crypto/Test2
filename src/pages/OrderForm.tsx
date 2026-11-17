@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ImagePlus, Plus, Trash2, X } from 'lucide-react'
+import { ImagePlus, Minus, Package, Plus, Trash2, X } from 'lucide-react'
 import { db } from '../db/db'
 import { createOrder, updateOrder, type OrderInput } from '../db/actions'
-import type { ImageKind, OrderStatus, PriceExtra } from '../db/types'
-import { STATUS, calcTotal, productTypeOf } from '../lib/domain'
-import { money, parseDay, today, uid } from '../lib/format'
+import type { ImageKind, OrderBox, OrderStatus, PriceExtra } from '../db/types'
+import { BOX_CATEGORY } from '../db/defaults'
+import { STATUS, calcTotal, extrasSum, orderBase, orderTotal, productTypeOf } from '../lib/domain'
+import { money, num, parseDay, today, uid } from '../lib/format'
 import { useSettings } from '../lib/hooks'
 import { CustomerPicker, IMAGE_KINDS } from '../components/shared'
 import { DayHint } from '../components/DayHint'
@@ -53,6 +55,9 @@ function emptyForm(date?: string): Form {
     extras: [],
     deliveryFee: undefined,
     discount: undefined,
+    basePrice: undefined,
+    free: false,
+    boxes: [],
     calculatedTotal: 0,
     agreedPrice: 0,
     status: 'onaylandi',
@@ -81,7 +86,11 @@ export default function OrderForm() {
     return { ...f, productType: params.get('tur') ?? f.productType, amount: num('kisi'), discount: num('indirim') }
   })
   const [loaded, setLoaded] = useState(!isEdit && !params.get('kaynak'))
-  const [agreedTouched, setAgreedTouched] = useState(isEdit)
+  // Anlaşılan tutar elle değiştirilene kadar fiyat listesinden (dilim fiyatı × kişi) gelir
+  const [baseTouched, setBaseTouched] = useState(isEdit)
+  // Düzenlemede siparişin şu anda stoktan düşülmüş kutuları (kalan stok hesabı için)
+  const [origBoxes, setOrigBoxes] = useState<OrderBox[]>([])
+  const boxItems = useLiveQuery(() => db.stockItems.where('category').equals(BOX_CATEGORY).sortBy('createdAt'), [])
   const [deposit, setDeposit] = useState<{ amount?: number; method: string; date: string }>({
     method: '',
     date: today(),
@@ -103,7 +112,10 @@ export default function OrderForm() {
     db.orders.get(src).then((o) => {
       if (!o) return
       const { id: _i, no: _n, createdAt: _c, updatedAt: _u, ...rest } = o
-      if (isEdit) setForm({ ...rest })
+      if (isEdit) {
+        setForm({ ...rest, basePrice: orderBase(o), boxes: o.boxes ?? [] })
+        setOrigBoxes(o.status !== 'iptal' ? (o.boxes ?? []) : [])
+      }
       else
         setForm({
           ...emptyForm(params.get('tarih') ?? undefined),
@@ -148,13 +160,18 @@ export default function OrderForm() {
   }, [form.deliveryMethod, form.customerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fee = form.deliveryMethod === 'adres' ? form.deliveryFee || 0 : 0
+  // Fiyat listesine göre değer (ücretsiz siparişlerde raporlanan değer)
   const calc = useMemo(
     () => calcTotal({ unitPrice: form.unitPrice, amount: form.amount, extras: form.extras, deliveryFee: fee, discount: form.discount }),
     [form.unitPrice, form.amount, form.extras, fee, form.discount],
   )
+  const listBase = (form.unitPrice || 0) * (form.amount || 0)
   useEffect(() => {
-    if (!agreedTouched) set('agreedPrice', calc)
-  }, [calc, agreedTouched])
+    if (!baseTouched) set('basePrice', listBase)
+  }, [listBase, baseTouched])
+  const base = form.basePrice ?? listBase
+  // Toplam = anlaşılan tutar + ekstralar + teslimat − indirim
+  const total = orderTotal({ base, extras: form.extras, deliveryFee: fee, discount: form.discount, free: form.free })
 
   useEffect(() => () => pending.forEach((p) => URL.revokeObjectURL(p.url)), []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -188,7 +205,10 @@ export default function OrderForm() {
       const input: OrderInput = {
         ...form,
         calculatedTotal: calc,
-        agreedPrice: form.agreedPrice || 0,
+        basePrice: form.free ? listBase : base,
+        free: Boolean(form.free),
+        agreedPrice: total,
+        boxes: (form.boxes ?? []).filter((b) => b.qty > 0),
         extras: form.extras.filter((e) => e.label || e.amount),
         tiers: pt.hasTiers ? form.tiers : undefined,
         deliveryAddress: form.deliveryMethod === 'adres' ? form.deliveryAddress : '',
@@ -201,7 +221,7 @@ export default function OrderForm() {
         nav(`/siparisler/${id}`, { replace: true })
       } else {
         const newId = await createOrder(input, {
-          deposit: deposit.amount ? { amount: deposit.amount, method: deposit.method, date: deposit.date } : undefined,
+          deposit: deposit.amount && !form.free ? { amount: deposit.amount, method: deposit.method, date: deposit.date } : undefined,
           images: pending.map((p) => ({ file: p.file, kind: p.kind })),
           copyImageIds: copyImageId ? [copyImageId] : undefined,
         })
@@ -234,7 +254,10 @@ export default function OrderForm() {
     }
   }
 
-  const balance = (form.agreedPrice || 0) - (deposit.amount || 0)
+  const balance = total - (deposit.amount || 0)
+  const boxQty = (itemId: string) => form.boxes?.find((b) => b.itemId === itemId)?.qty ?? 0
+  const setBoxQty = (itemId: string, qty: number) =>
+    set('boxes', [...(form.boxes ?? []).filter((b) => b.itemId !== itemId), ...(qty > 0 ? [{ itemId, qty }] : [])])
 
   return (
     <div className="pb-20 md:pb-0">
@@ -289,6 +312,47 @@ export default function OrderForm() {
             </div>
             <Field label="Kutlama türü" className="mt-3" group>
               <ChipSelect options={settings.options.occasions} value={form.occasion} onChange={(v) => set('occasion', v)} />
+            </Field>
+            <Field label="Kutu (stoktan düşülür)" className="mt-3" group>
+              <div className="grid gap-2 xl:grid-cols-2">
+                {(boxItems ?? []).map((item) => {
+                  const qty = boxQty(item.id)
+                  const available = item.quantity + (origBoxes.find((b) => b.itemId === item.id)?.qty ?? 0)
+                  const left = available - qty
+                  const low = item.minQuantity !== undefined && item.minQuantity > 0 && left <= item.minQuantity
+                  return (
+                    <div
+                      key={item.id}
+                      data-box={item.name}
+                      className={cx('flex items-center gap-2 rounded-xl border px-3 py-2', qty > 0 ? 'border-accent bg-accent-soft/40' : 'border-line bg-white')}
+                    >
+                      <Package size={18} className="shrink-0 text-muted" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[15px] leading-tight">{item.name}</div>
+                        <div className={cx('text-xs', left < 0 ? 'font-medium text-red-600' : low ? 'font-medium text-amber-700' : 'text-muted')}>
+                          Stok {num(available)}
+                          {qty > 0 && ` → ${num(left)}`}
+                          {left < 0 ? ' · stok yetmiyor' : low ? ' · azaldı' : ''}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <IconButton label={`${item.name} azalt`} disabled={qty === 0} onClick={() => setBoxQty(item.id, qty - 1)}>
+                          <Minus size={16} />
+                        </IconButton>
+                        <span className="w-6 text-center font-medium tabular-nums">{qty}</span>
+                        <IconButton label={`${item.name} artır`} onClick={() => setBoxQty(item.id, qty + 1)}>
+                          <Plus size={16} />
+                        </IconButton>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              {boxItems && boxItems.length === 0 && (
+                <p className="text-sm text-muted">
+                  Stok’ta “{BOX_CATEGORY}” kategorisinde kalem yok. <Link to="/stok" className="underline">Stok</Link> sayfasından kutu ekleyin.
+                </p>
+              )}
             </Field>
           </Section>
 
@@ -418,91 +482,113 @@ export default function OrderForm() {
 
         <div className="space-y-4">
           <Section title="Fiyat">
-            <p className="text-xs text-muted">
-              Tutar <Link to="/fiyat-listesi" className="underline">fiyat listesinden</Link> otomatik hesaplanır.
-            </p>
-            {isEdit && form.unitPrice !== undefined && form.unitPrice !== pt.unitPrice && (
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                <span>Fiyat listesi bu sipariş kaydedildikten sonra değişti.</span>
-                <button type="button" className="font-medium underline" onClick={() => set('unitPrice', pt.unitPrice)}>
-                  Güncel listeyle hesapla
-                </button>
-              </div>
-            )}
-            <Field label="Anlaşılan tutar" className="mt-3" hint={form.agreedPrice !== calc ? `Hesaplanandan fark: ${money((form.agreedPrice || 0) - calc)}` : undefined}>
-              <div className="flex gap-2">
-                <NumberInput
-                  integer
-                  value={form.agreedPrice}
-                  onChange={(v) => {
-                    setAgreedTouched(true)
-                    set('agreedPrice', v ?? 0)
-                  }}
-                />
-                {agreedTouched && form.agreedPrice !== calc && (
-                  <Button
-                    onClick={() => {
-                      setAgreedTouched(false)
-                      set('agreedPrice', calc)
-                    }}
-                  >
-                    = Hesaplanan
-                  </Button>
-                )}
-              </div>
-            </Field>
-
-            <div className="mt-2 space-y-1.5 rounded-xl bg-stone-50 p-3 text-sm">
-              <Row
-                label={`${pt.label} · ${form.amount || 0} ${pt.unit === 'kişi' ? 'kişilik' : 'adet'}`}
-                value={money((form.unitPrice || 0) * (form.amount || 0))}
-              />
-              {form.extras.some((e) => e.amount) && <Row label="Ekstralar" value={money(form.extras.reduce((s, e) => s + (e.amount || 0), 0))} />}
-              {fee > 0 && <Row label="Adrese teslim" value={money(fee)} />}
-              {!!form.discount && <Row label="İndirim" value={`−${money(form.discount)}`} />}
-              <Row label={<b>Hesaplanan toplam</b>} value={<b>{money(calc)}</b>} />
-            </div>
-            <div className="mt-4 border-t border-line pt-4">
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-[13px] font-medium text-muted">Ekstralar (aksesuar, oyuncak, özel malzeme…)</span>
-              </div>
-              <div className="space-y-2">
-                {form.extras.map((e) => (
-                  <div key={e.id} className="flex gap-2">
-                    <div className="flex-1">
-                      <ComboInput
-                        options={settings.options.extras}
-                        value={e.label}
-                        onChange={(v) => updateExtra(e.id, { label: v })}
-                        placeholder="Açıklama"
-                      />
-                    </div>
+            <Toggle checked={Boolean(form.free)} onChange={(v) => set('free', v)} label="Ücretsiz (ikram / hediye)" />
+            {form.free ? (
+              <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900">
+                Bu sipariş <b>ücretsiz</b> kaydedilir; ödeme beklenmez. Fiyat listesine göre değeri <b>{money(calc)}</b> — raporlarda
+                “Ücretsiz” olarak süzülebilir.
+              </p>
+            ) : (
+              <>
+                <Field
+                  label="Anlaşılan tutar"
+                  className="mt-3"
+                  hint={
+                    listBase > 0
+                      ? `Fiyat listesine göre ${pt.label} · ${form.amount || 0} ${pt.unit === 'kişi' ? 'kişilik' : 'adet'}: ${money(listBase)}`
+                      : form.amount
+                        ? 'Fiyat listesinde bu ürünün fiyatı yok; tutarı yazın.'
+                        : 'Kişi sayısını girince fiyat listesinden gelir; dilerseniz elle yazın.'
+                  }
+                >
+                  <div className="flex gap-2">
                     <NumberInput
                       integer
-                      className="w-28"
-                      value={e.amount || undefined}
-                      onChange={(v) => updateExtra(e.id, { amount: v ?? 0 })}
+                      value={form.basePrice}
+                      onChange={(v) => {
+                        setBaseTouched(true)
+                        set('basePrice', v ?? 0)
+                      }}
                       placeholder="₺"
                     />
-                    <IconButton label="Sil" onClick={() => set('extras', form.extras.filter((x) => x.id !== e.id))}>
-                      <Trash2 size={18} className="text-red-600" />
-                    </IconButton>
+                    {baseTouched && listBase > 0 && form.basePrice !== listBase && (
+                      <Button
+                        onClick={() => {
+                          setBaseTouched(false)
+                          set('basePrice', listBase)
+                        }}
+                      >
+                        = Fiyat listesi
+                      </Button>
+                    )}
                   </div>
-                ))}
-                <Button
-                  size="sm"
-                  variant="soft"
-                  icon={<Plus size={16} />}
-                  onClick={() => set('extras', [...form.extras, { id: uid(), label: '', amount: 0 }])}
-                >
-                  Ekstra ekle
-                </Button>
-              </div>
-            </div>
-            <Field label="İndirim" className="mt-3" hint="Toplamdan düşülür">
-              <NumberInput integer value={form.discount} onChange={(v) => set('discount', v)} placeholder="₺" />
-            </Field>
-            {!isEdit && (
+                </Field>
+                {isEdit && form.unitPrice !== undefined && form.unitPrice !== pt.unitPrice && (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <span>Fiyat listesi bu sipariş kaydedildikten sonra değişti.</span>
+                    <button
+                      type="button"
+                      className="font-medium underline"
+                      onClick={() => {
+                        set('unitPrice', pt.unitPrice)
+                        setBaseTouched(false)
+                      }}
+                    >
+                      Güncel listeyle hesapla
+                    </button>
+                  </div>
+                )}
+                <div className="mt-4 border-t border-line pt-4">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[13px] font-medium text-muted">Ekstralar (aksesuar, oyuncak, özel malzeme…)</span>
+                </div>
+                <div className="space-y-2">
+                  {form.extras.map((e) => (
+                    <div key={e.id} className="flex gap-2">
+                      <div className="flex-1">
+                        <ComboInput
+                          options={settings.options.extras}
+                          value={e.label}
+                          onChange={(v) => updateExtra(e.id, { label: v })}
+                          placeholder="Açıklama"
+                        />
+                      </div>
+                      <NumberInput
+                        integer
+                        className="w-28"
+                        value={e.amount || undefined}
+                        onChange={(v) => updateExtra(e.id, { amount: v ?? 0 })}
+                        placeholder="₺"
+                      />
+                      <IconButton label="Sil" onClick={() => set('extras', form.extras.filter((x) => x.id !== e.id))}>
+                        <Trash2 size={18} className="text-red-600" />
+                      </IconButton>
+                    </div>
+                  ))}
+                  <Button
+                    size="sm"
+                    variant="soft"
+                    icon={<Plus size={16} />}
+                    onClick={() => set('extras', [...form.extras, { id: uid(), label: '', amount: 0 }])}
+                  >
+                    Ekstra ekle
+                  </Button>
+                </div>
+                </div>
+                <Field label="İndirim" className="mt-3" hint="Toplamdan düşülür">
+                  <NumberInput integer value={form.discount} onChange={(v) => set('discount', v)} placeholder="₺" />
+                </Field>
+                <div className="mt-4 space-y-1.5 rounded-xl bg-stone-50 p-3 text-sm" data-testid="price-summary">
+                  <Row label="Anlaşılan tutar" value={money(base)} />
+                  {extrasSum(form.extras) > 0 && <Row label="Ekstralar" value={money(extrasSum(form.extras))} />}
+                  {fee > 0 && <Row label="Adrese teslim" value={money(fee)} />}
+                  {!!form.discount && <Row label="İndirim" value={`−${money(form.discount)}`} />}
+                  <Row label={<b className="text-ink">Toplam</b>} value={<b>{money(total)}</b>} />
+                </div>
+              </>
+            )}
+
+            {!isEdit && !form.free && (
               <div className="mt-4 border-t border-line pt-4">
                 <div className="mb-2 text-[13px] font-medium text-muted">Alınan kapora</div>
                 <div className="grid grid-cols-2 gap-2">

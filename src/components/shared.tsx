@@ -8,7 +8,7 @@ import { saveCustomer, type CustomerInput } from '../db/actions'
 import { STATUS, orderSummary, productTypeOf } from '../lib/domain'
 import { contactText, fmtDateShort, matches, money, MONTHS, telLink, uid, waLink } from '../lib/format'
 import { useBlobUrl, useSettings } from '../lib/hooks'
-import { Avatar, Badge, Button, ComboInput, Field, IconButton, Input, Modal, NumberInput, Select, Textarea, cx, useToast } from './ui'
+import { Avatar, Badge, Button, ChipSelect, ComboInput, Field, IconButton, Input, Modal, NumberInput, Select, Textarea, cx, useToast } from './ui'
 
 export function StatusBadge({ status }: { status: OrderStatus }) {
   const s = STATUS[status]
@@ -73,7 +73,11 @@ export function OrderRow({
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
         <StatusBadge status={order.status} />
-        <span className="text-sm font-medium tabular-nums text-ink">{money(order.agreedPrice)}</span>
+        {order.free ? (
+          <Badge className="bg-emerald-100 text-emerald-800">Ücretsiz</Badge>
+        ) : (
+          <span className="text-sm font-medium tabular-nums text-ink">{money(order.agreedPrice)}</span>
+        )}
         {balance > 0 && order.status !== 'iptal' && (
           <span className="text-xs tabular-nums text-red-600">Kalan {money(balance)}</span>
         )}
@@ -280,8 +284,8 @@ export function CustomerFormModal({
         <Field label="Instagram kullanıcı adı">
           <Input value={form.instagram ?? ''} onChange={(e) => set('instagram', e.target.value)} placeholder="@kullanici" />
         </Field>
-        <Field label="Bizi nereden buldu?">
-          <ComboInput options={settings?.options.sources ?? []} value={form.source} onChange={(v) => set('source', v)} />
+        <Field label="Bizi nereden buldu?" className="md:col-span-2" group>
+          <ChipSelect allowCustom={false} options={settings?.options.sources ?? []} value={form.source} onChange={(v) => set('source', v)} />
         </Field>
         <Field label="Adres" className="md:col-span-2">
           <Input value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} />

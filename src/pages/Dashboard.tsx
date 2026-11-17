@@ -168,6 +168,30 @@ export default function Dashboard() {
 
         <div className="space-y-4">
           <BackupReminder settings={settings} hasData={data.orders.length > 0} />
+          {lowStock.length > 0 && (
+            <Card className="border-amber-200" data-testid="low-stock">
+              <CardHeader
+                title="Azalan stoklar"
+                icon={<Package size={18} />}
+                action={
+                  <Link to="/stok" className="text-sm text-accent-ink">
+                    Stok
+                  </Link>
+                }
+              />
+              <ul className="space-y-1.5 px-4 pb-4 text-sm">
+                {lowStock.map((s) => (
+                  <li key={s.id} className="flex justify-between">
+                    <span>{s.name}</span>
+                    <span className="tabular-nums text-red-600">
+                      {num(s.quantity)} {s.unit}
+                      <span className="text-muted"> / en az {num(s.minQuantity ?? 0)}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
           {overDays.length > 0 && (
             <Card className="border-amber-200 bg-amber-50/60 p-4">
               <div className="flex items-start gap-2 text-sm text-amber-900">
@@ -186,29 +210,6 @@ export default function Dashboard() {
             </Card>
           )}
 
-          {lowStock.length > 0 && (
-            <Card>
-              <CardHeader
-                title="Azalan stoklar"
-                icon={<Package size={18} />}
-                action={
-                  <Link to="/stok" className="text-sm text-accent-ink">
-                    Stok
-                  </Link>
-                }
-              />
-              <ul className="space-y-1.5 px-4 pb-4 text-sm">
-                {lowStock.map((s) => (
-                  <li key={s.id} className="flex justify-between">
-                    <span>{s.name}</span>
-                    <span className="tabular-nums text-red-600">
-                      {num(s.quantity)} {s.unit}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
           {!empty && data.orders.length === 0 && <EmptyState title="Henüz sipariş yok" />}
         </div>
       </div>

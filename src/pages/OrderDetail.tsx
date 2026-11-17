@@ -23,7 +23,7 @@ import {
   setOrderStatus,
 } from '../db/actions'
 import type { ImageKind, Order, OrderImage, PaymentKind, Settings } from '../db/types'
-import { STATUS, depositTotal, orderSummary, paidTotal, productTypeOf } from '../lib/domain'
+import { STATUS, depositTotal, orderBase, orderSummary, paidTotal, productTypeOf } from '../lib/domain'
 import { fmtDate, money, num, relDay, today } from '../lib/format'
 import { useSettings } from '../lib/hooks'
 import { ContactInfo, IMAGE_KINDS, StatusBadge, Thumb } from '../components/shared'
@@ -60,13 +60,15 @@ export default function OrderDetail() {
   const data = useLiveQuery(async () => {
     const order = await db.orders.get(id)
     if (!order) return { order: null }
-    const [customer, payments, images, moves] = await Promise.all([
+    const [customer, payments, images, moves, boxItems] = await Promise.all([
       db.customers.get(order.customerId),
       db.payments.where('orderId').equals(id).sortBy('date'),
       db.images.where('orderId').equals(id).sortBy('createdAt'),
       db.stockMoves.where('orderId').equals(id).toArray(),
+      db.stockItems.bulkGet((order.boxes ?? []).map((b) => b.itemId)),
     ])
-    return { order, customer, payments, images, moves }
+    const boxes = (order.boxes ?? []).map((b, i) => ({ name: boxItems[i]?.name ?? 'Silinmiş kutu', qty: b.qty }))
+    return { order, customer, payments, images, moves, boxes }
   }, [id])
 
   if (!settings || !data) return null
@@ -79,7 +81,7 @@ export default function OrderDetail() {
       />
     )
 
-  const { order, customer, payments = [], images = [], moves = [] } = data
+  const { order, customer, payments = [], images = [], moves = [], boxes = [] } = data
   const pt = productTypeOf(settings, order.productType)
   const paid = paidTotal(payments)
   const balance = order.agreedPrice - paid
@@ -180,10 +182,19 @@ export default function OrderDetail() {
           </div>
         </Card>
         <Card className="p-4">
-          <div className="text-[13px] text-muted">Anlaşılan tutar</div>
-          <div className="mt-1 text-xl font-semibold tabular-nums">{money(order.agreedPrice)}</div>
-          {order.calculatedTotal !== order.agreedPrice && (
-            <div className="text-sm text-muted">Hesaplanan: {money(order.calculatedTotal)}</div>
+          <div className="text-[13px] text-muted">Toplam tutar</div>
+          {order.free ? (
+            <>
+              <div className="mt-1 text-xl font-semibold text-emerald-700">Ücretsiz</div>
+              <div className="text-sm text-muted">Değeri {money(order.calculatedTotal)}</div>
+            </>
+          ) : (
+            <>
+              <div className="mt-1 text-xl font-semibold tabular-nums">{money(order.agreedPrice)}</div>
+              {order.calculatedTotal !== order.agreedPrice && order.calculatedTotal > 0 && (
+                <div className="text-sm text-muted">Fiyat listesine göre {money(order.calculatedTotal)}</div>
+              )}
+            </>
           )}
         </Card>
         <Card className="p-4">
@@ -193,7 +204,13 @@ export default function OrderDetail() {
             <span className="text-sm text-muted">alındı</span>
           </div>
           <div className={cx('text-sm font-medium tabular-nums', balance > 0 ? 'text-red-600' : 'text-emerald-700')}>
-            {balance > 0 ? `Kalan ${money(balance)}` : balance < 0 ? `Fazla ödeme ${money(-balance)}` : 'Tamamı ödendi'}
+            {order.free && paid === 0
+              ? 'Ödeme beklenmiyor'
+              : balance > 0
+                ? `Kalan ${money(balance)}`
+                : balance < 0
+                  ? `Fazla ödeme ${money(-balance)}`
+                  : 'Tamamı ödendi'}
           </div>
         </Card>
       </div>
@@ -209,7 +226,7 @@ export default function OrderDetail() {
         ]}
       />
 
-      {tab === 'detay' && <DetailsTab order={order} customer={customer} summary={orderSummary(order, pt)} />}
+      {tab === 'detay' && <DetailsTab order={order} customer={customer} summary={orderSummary(order, pt)} boxes={boxes} />}
       {tab === 'tasarim' && <DesignTab order={order} images={images} />}
       {tab === 'odeme' && <PaymentsTab order={order} payments={payments} settings={settings} balance={balance} />}
       {tab === 'maliyet' && <CostTab order={order} moves={moves} cost={cost} />}
@@ -219,7 +236,17 @@ export default function OrderDetail() {
 
 /* ---------------- Detaylar ---------------- */
 
-function DetailsTab({ order, customer, summary }: { order: Order; customer?: import('../db/types').Customer; summary: string }) {
+function DetailsTab({
+  order,
+  customer,
+  summary,
+  boxes,
+}: {
+  order: Order
+  customer?: import('../db/types').Customer
+  summary: string
+  boxes: { name: string; qty: number }[]
+}) {
   const rows: [string, ReactNode][] = [
     ['Kek cinsi', order.cakeType],
     ['Krema cinsi', order.creamType],
@@ -227,6 +254,7 @@ function DetailsTab({ order, customer, summary }: { order: Order; customer?: imp
     ['Pasta üstü yazı', order.cakeText && `“${order.cakeText}”`],
     ['Tebrik kartı yazısı', order.cardText && `“${order.cardText}”`],
     ['Kat sayısı', order.tiers],
+    ['Kutu', boxes.length ? boxes.map((b) => `${b.name} × ${b.qty}`).join(', ') : undefined],
     ['Tasarım beklentileri', order.designNotes],
     [
       'Teslimat türü',
@@ -266,24 +294,31 @@ function DetailsTab({ order, customer, summary }: { order: Order; customer?: imp
   )
 }
 
-/** Ürün tutarı, ekstralar, teslimat ücreti, indirim ve toplam (dilim fiyatı gösterilmez) */
+/** Anlaşılan tutar, ekstralar, teslimat ücreti, indirim ve toplam (dilim fiyatı gösterilmez) */
 function PriceBreakdown({ order, summary }: { order: Order; summary: string }) {
-  const base = (order.unitPrice || 0) * (order.amount || 0)
   const line = (label: ReactNode, value: ReactNode, strong?: boolean, key?: string) => (
     <div key={key} className={cx('flex justify-between gap-3 text-[15px]', strong && 'font-semibold')}>
       <span className={strong ? '' : 'text-muted'}>{label}</span>
       <span className="tabular-nums">{value}</span>
     </div>
   )
+  if (order.free) {
+    return (
+      <div className="space-y-1 border-t border-line px-4 py-3">
+        <div className="mb-1 text-sm text-muted">Fiyat</div>
+        {line(summary, 'Ücretsiz', true)}
+        {line('Fiyat listesine göre değeri', money(order.calculatedTotal))}
+      </div>
+    )
+  }
   return (
     <div className="space-y-1 border-t border-line px-4 py-3">
       <div className="mb-1 text-sm text-muted">Fiyat</div>
-      {line(summary, money(base))}
+      {line(`Anlaşılan tutar · ${summary}`, money(orderBase(order)))}
       {order.extras.map((e) => line(e.label || 'Ekstra', money(e.amount), false, e.id))}
       {!!order.deliveryFee && line('Adrese teslim ücreti', money(order.deliveryFee))}
       {!!order.discount && line('İndirim', `−${money(order.discount)}`)}
-      {line('Hesaplanan toplam', money(order.calculatedTotal))}
-      {order.agreedPrice !== order.calculatedTotal && line('Anlaşılan tutar', money(order.agreedPrice), true)}
+      {line('Toplam', money(order.agreedPrice), true)}
     </div>
   )
 }

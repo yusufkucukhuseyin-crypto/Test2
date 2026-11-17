@@ -32,6 +32,12 @@ export interface Customer {
   updatedAt: number
 }
 
+export interface OrderBox {
+  /** StockItem.id (Kutu kategorisi) */
+  itemId: string
+  qty: number
+}
+
 export interface PriceExtra {
   id: ID
   label: string
@@ -73,9 +79,15 @@ export interface Order {
   deliveryFee?: number
   /** İndirim (₺) */
   discount?: number
-  /** Hesaplanan toplam tutar */
+  /** Ürün için anlaşılan tutar (ekstralar, teslimat ve indirim hariç) */
+  basePrice?: number
+  /** Ücretsiz (ikram / hediye) sipariş: tutar 0, değeri raporlarda görünür */
+  free?: boolean
+  /** Siparişte kullanılan kutular (stoktan düşülür) */
+  boxes?: OrderBox[]
+  /** Fiyat listesine göre değer (ürün + ekstralar + teslimat − indirim) */
   calculatedTotal: number
-  /** Müşteriyle anlaşılan tutar */
+  /** Müşterinin ödeyeceği toplam: anlaşılan tutar + ekstralar + teslimat − indirim (ücretsizse 0) */
   agreedPrice: number
   status: OrderStatus
   createdAt: number
@@ -160,6 +172,8 @@ export interface StockMove {
   date: string
   orderId?: ID
   note?: string
+  /** Siparişin kutu seçiminden otomatik oluştu */
+  auto?: 'kutu'
   createdAt: number
 }
 

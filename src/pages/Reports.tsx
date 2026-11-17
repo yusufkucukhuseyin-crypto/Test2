@@ -9,7 +9,7 @@ import { useCoreData } from '../lib/data'
 import { useSettings } from '../lib/hooks'
 import { paidTotal, productTypeOf } from '../lib/domain'
 import { money, num } from '../lib/format'
-import { Card, CardHeader, IconButton, PageHeader, Stat, cx } from '../components/ui'
+import { Card, CardHeader, IconButton, PageHeader, Segmented, Stat, cx } from '../components/ui'
 
 const compact = new Intl.NumberFormat('tr-TR', { notation: 'compact', maximumFractionDigits: 1 })
 
@@ -18,15 +18,23 @@ export default function Reports() {
   const data = useCoreData()
   const moves = useLiveQuery(() => db.stockMoves.toArray(), [])
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
+  // Ücretsiz (ikram) siparişleri süzme
+  const [kind, setKind] = useState<'tum' | 'ucretli' | 'ucretsiz'>('tum')
   const mk = format(month, 'yyyy-MM')
 
   const r = useMemo(() => {
     if (!data || !settings || !moves) return null
-    const active = data.orders.filter((o) => o.status !== 'iptal')
+    const active = data.orders.filter(
+      (o) => o.status !== 'iptal' && (kind === 'tum' || (kind === 'ucretsiz' ? o.free : !o.free)),
+    )
     const inMonth = (d: string) => d.startsWith(mk)
     const monthOrders = active.filter((o) => inMonth(o.deliveryDate))
     const revenue = monthOrders.reduce((s, o) => s + o.agreedPrice, 0)
-    const payments = [...data.paymentsByOrder.values()].flat()
+    const paidOrders = monthOrders.filter((o) => !o.free)
+    const freeOrders = monthOrders.filter((o) => o.free).sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate))
+    const freeValue = freeOrders.reduce((s, o) => s + o.calculatedTotal, 0)
+    const activeIds = new Set(active.map((o) => o.id))
+    const payments = [...data.paymentsByOrder.entries()].filter(([oid]) => activeIds.has(oid)).flatMap(([, ps]) => ps)
     const collected = paidTotal(payments.filter((p) => inMonth(p.date)))
     const orderIds = new Set(monthOrders.map((o) => o.id))
     const cost = moves.filter((m) => m.type === 'cikis' && m.orderId && orderIds.has(m.orderId)).reduce((s, m) => s + m.quantity * m.unitCost, 0)
@@ -62,6 +70,9 @@ export default function Reports() {
 
     return {
       monthOrders,
+      paidOrders,
+      freeOrders,
+      freeValue,
       revenue,
       collected,
       cost,
@@ -72,7 +83,7 @@ export default function Reports() {
       customers: [...byCustomer.entries()].sort((a, b) => b[1].value - a[1].value).slice(0, 10),
       receivables,
     }
-  }, [data, settings, moves, mk, month])
+  }, [data, settings, moves, mk, month, kind])
 
   if (!settings || !data || !r) return null
   const monthName = format(month, 'LLLL yyyy', { locale: tr })
@@ -97,16 +108,79 @@ export default function Reports() {
         }
       />
 
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Segmented
+          value={kind}
+          onChange={setKind}
+          options={[
+            { value: 'tum', label: 'Tümü' },
+            { value: 'ucretli', label: 'Ücretli' },
+            { value: 'ucretsiz', label: 'Ücretsiz' },
+          ]}
+        />
+        {r.freeOrders.length > 0 && kind !== 'ucretsiz' && (
+          <span className="text-sm text-muted">
+            Bu ay {r.freeOrders.length} ücretsiz sipariş (değeri {money(r.freeValue)})
+          </span>
+        )}
+      </div>
+
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Ciro" value={money(r.revenue)} sub={`${r.monthOrders.length} sipariş · teslim tarihine göre`} />
-        <Stat label="Tahsilat" value={money(r.collected)} sub="Bu ay alınan ödemeler" />
-        <Stat label="Ortalama sipariş" value={money(r.monthOrders.length ? Math.round(r.revenue / r.monthOrders.length) : 0)} sub={r.cancelled ? `${r.cancelled} iptal` : undefined} />
+        {kind === 'ucretsiz' ? (
+          <Stat label="Ücretsiz verilen" value={`${r.freeOrders.length} sipariş`} sub="Teslim tarihine göre" />
+        ) : (
+          <Stat
+            label="Ciro"
+            value={money(r.revenue)}
+            sub={`${r.paidOrders.length} ücretli sipariş${r.freeOrders.length ? ` · ${r.freeOrders.length} ücretsiz` : ''}`}
+          />
+        )}
+        {kind === 'ucretsiz' ? (
+          <Stat label="Ücretsiz verilenlerin değeri" value={money(r.freeValue)} sub="Fiyat listesine göre" />
+        ) : (
+          <Stat label="Tahsilat" value={money(r.collected)} sub="Bu ay alınan ödemeler" />
+        )}
+        <Stat
+          label="Ortalama sipariş"
+          value={money(r.paidOrders.length ? Math.round(r.revenue / r.paidOrders.length) : 0)}
+          sub={[r.freeOrders.length ? 'ücretsizler hariç' : '', r.cancelled ? `${r.cancelled} iptal` : ''].filter(Boolean).join(' · ') || undefined}
+        />
         <Stat
           label="Malzeme maliyeti"
           value={money(r.cost)}
           sub={r.cost > 0 ? `Brüt kâr ${money(r.revenue - r.cost)}` : 'Siparişlere malzeme girilirse hesaplanır'}
         />
       </div>
+
+      {(kind === 'ucretsiz' || r.freeOrders.length > 0) && (
+        <Card className="mb-4 overflow-hidden" data-testid="free-orders">
+          <CardHeader title={`Ücretsiz siparişler · ${monthName} · değeri ${money(r.freeValue)}`} />
+          <table className="w-full text-sm tabular-nums">
+            <tbody>
+              {r.freeOrders.map((o) => {
+                const pt = productTypeOf(settings, o.productType)
+                return (
+                  <tr key={o.id} className="border-t border-line">
+                    <td className="py-2 pl-4 whitespace-nowrap text-muted">{format(new Date(o.deliveryDate + 'T00:00'), 'd MMM', { locale: tr })}</td>
+                    <td className="py-2">
+                      <Link to={`/siparisler/${o.id}`} className="hover:underline">
+                        {data.customerById.get(o.customerId)?.name ?? '—'}
+                      </Link>
+                      <div className="text-xs text-muted">
+                        {pt.label}
+                        {o.amount ? ` · ${o.amount} ${pt.unit === 'kişi' ? 'kişilik' : 'adet'}` : ''}
+                        {o.occasion ? ` · ${o.occasion}` : ''}
+                      </div>
+                    </td>
+                    <td className="py-2 pr-4 text-right font-medium">{money(o.calculatedTotal)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {!r.freeOrders.length && <div className="px-4 pb-4 text-sm text-muted">Bu ay ücretsiz sipariş yok.</div>}
+        </Card>
+      )}
 
       <Card className="mb-4">
         <CardHeader title="Aylık ciro · son 12 ay" />

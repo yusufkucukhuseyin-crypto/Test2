@@ -15,8 +15,14 @@ export const FILLINGS = ['Çilek', 'Muz', 'Frambuaz', 'Orman Meyveli', 'Çikolat
 /** Varsayılan günlük kapasite: aynı gün teslim edilebilecek sipariş sayısı */
 export const DEFAULT_DAILY_CAPACITY = 2
 
+/** Kutu stok kalemlerinin kategorisi: siparişte seçilen kutular stoktan düşer */
+export const BOX_CATEGORY = 'Kutu'
+export const DEFAULT_BOXES = ['Küçük kutu', 'Orta kutu', 'Büyük kutu', 'Cupcake kutusu']
+/** Kutu stoğu bu sayının altına inince uyarılır (Stok’tan her kutu için değiştirilebilir) */
+export const DEFAULT_BOX_MIN = 5
+
 /** Ayar verisi sürümü. Artırınca ensureSettings içine geçişini ekleyin. */
-export const SETTINGS_REV = 3
+export const SETTINGS_REV = 4
 
 export function defaultSettings(): Settings {
   return {
@@ -62,7 +68,7 @@ export function defaultSettings(): Settings {
         'Kutu / paketleme',
       ],
       stockUnits: ['kg', 'g', 'lt', 'ml', 'adet', 'paket', 'kutu'],
-      stockCategories: ['Un ve şeker', 'Süt ürünleri', 'Çikolata', 'Meyve', 'Süsleme', 'Ambalaj', 'Diğer'],
+      stockCategories: ['Kutu', 'Un ve şeker', 'Süt ürünleri', 'Çikolata', 'Meyve', 'Süsleme', 'Ambalaj', 'Diğer'],
     },
   }
 }

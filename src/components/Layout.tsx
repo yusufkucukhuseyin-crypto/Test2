@@ -119,7 +119,10 @@ export default function Layout() {
 
   // Önümüzdeki 7 gündeki özel günler: menüde sayı olarak gösterilir
   const soonSpecials = useLiveQuery(async () => upcomingSpecialDays(await db.customers.toArray(), 7).length, []) ?? 0
-  const badge = (to: string) => (to === '/ozel-gunler' && soonSpecials > 0 ? soonSpecials : 0)
+  // Minimum seviyenin altına inen stok kalemleri (ör. kutular): menüde sayı olarak gösterilir
+  const lowStock =
+    useLiveQuery(async () => (await db.stockItems.toArray()).filter((s) => s.minQuantity && s.quantity <= s.minQuantity).length, []) ?? 0
+  const badge = (to: string) => (to === '/ozel-gunler' ? soonSpecials : to === '/stok' ? lowStock : 0)
 
   const name = settings?.businessName || 'Pastane'
   const logo = settings?.logo

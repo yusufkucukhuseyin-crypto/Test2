@@ -25,6 +25,7 @@ import { upcomingSpecialDays } from '../lib/domain'
 import { resolveAccent } from '../lib/color'
 import { cx } from './ui'
 import { ErrorBoundary } from './ErrorBoundary'
+import { SyncIndicator } from './Cloud'
 
 const NAV: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: '/', label: 'Ana sayfa', icon: <House size={20} />, end: true },
@@ -138,8 +139,11 @@ export default function Layout() {
             mini ? 'w-[76px] items-center px-2' : 'w-60 px-3',
           )}
         >
-          <div className={cx('pb-5', mini ? '' : 'px-2')}>
+          <div className={cx('pb-4', mini ? 'flex flex-col items-center gap-1' : 'px-2')}>
             {mini ? <BrandMark name={name} logo={logo} size={40} /> : <Logo name={name} logo={logo} />}
+            <div className={mini ? '' : '-ml-2 mt-2'}>
+              <SyncIndicator compact={mini} />
+            </div>
           </div>
           <button
             type="button"
@@ -226,14 +230,17 @@ export default function Layout() {
       <header className="pt-safe sticky top-0 z-30 border-b border-line bg-cream/90 backdrop-blur md:hidden">
         <div className="flex h-14 items-center justify-between px-4">
           <Logo name={name} logo={logo} />
-          <button
-            type="button"
-            aria-label="Menü"
-            onClick={() => setMenuOpen(true)}
-            className="flex h-10 w-10 items-center justify-center rounded-xl hover:bg-stone-100"
-          >
-            <Menu size={22} />
-          </button>
+          <div className="flex items-center gap-1">
+            <SyncIndicator compact />
+            <button
+              type="button"
+              aria-label="Menü"
+              onClick={() => setMenuOpen(true)}
+              className="flex h-10 w-10 items-center justify-center rounded-xl hover:bg-stone-100"
+            >
+              <Menu size={22} />
+            </button>
+          </div>
         </div>
       </header>
 

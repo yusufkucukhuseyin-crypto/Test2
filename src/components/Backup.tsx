@@ -6,6 +6,7 @@ import type { Settings } from '../db/types'
 import { today } from '../lib/format'
 import { Button, Card, Modal, useToast } from './ui'
 import { ask, tell } from './confirm'
+import { syncState } from '../lib/cloud'
 
 const isTouch = () => window.matchMedia?.('(pointer: coarse)').matches ?? false
 const markBackup = () => updateSettings({ lastBackupAt: Date.now() })
@@ -122,7 +123,11 @@ export function RestoreButton({ size, label = 'Yedeği geri yükle' }: { size?: 
           const f = e.target.files?.[0]
           e.target.value = ''
           if (!f) return
-          if (!(await ask('Yedek geri yüklenirse bu cihazdaki TÜM mevcut verilerin yerini alır. Devam edilsin mi?', { confirmLabel: 'Geri yükle' }))) return
+          const msg =
+            'Yedek geri yüklenirse bu cihazdaki TÜM mevcut verilerin yerini alır.' +
+            (syncState().phase !== 'off' ? ' Bulut eşitleme açık: buluttaki ve diğer cihazlardaki veriler de bu yedekle değişir.' : '') +
+            ' Devam edilsin mi?'
+          if (!(await ask(msg, { confirmLabel: 'Geri yükle' }))) return
           setBusy(true)
           try {
             await importBackup(f)

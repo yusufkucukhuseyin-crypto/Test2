@@ -19,7 +19,7 @@ olmadan da çalışır.
 | **Katalog** | Bitmiş ürün fotoğrafları; ürün türüne göre filtre; **“Bu modelden sipariş”** |
 | **Stok** | **Kutu stoğu** (Küçük / Orta / Büyük / Cupcake): siparişte seçilen kutu düşer, iptalde geri döner, en az seviyenin altına inince menüde Stok’un yanında uyarı sayısı. Malzeme miktarı ve birim maliyeti, alışta ağırlıklı ortalama maliyet, kullanım, sayım, minimum seviye uyarısı. Siparişe malzeme yazınca **maliyet ve brüt kâr** |
 | **Raporlar** | **Tümü / Ücretli / Ücretsiz** süzgeci ve ücretsiz verilenlerin değeri; aylık ciro, tahsilat, ortalama sipariş, son 12 ay grafiği, ürün ve kutlama türü dağılımı, en çok sipariş veren müşteriler |
-| **Ayarlar** | İşletme adı, karşılama adı, **logo** (tema rengi logodan otomatik alınır) ve renk teması, günlük kapasite, kapalı günler, seçenek listeleri, yedek alma / geri yükleme |
+| **Ayarlar** | **Bulut eşitleme** (giriş / çıkış, durum), işletme adı, karşılama adı, **logo** (tema rengi logodan otomatik alınır) ve renk teması, günlük kapasite, kapalı günler, seçenek listeleri, yedek alma / geri yükleme |
 
 Sol menü tablet ve bilgisayarda **küçültülebilir** (yalnızca simgeler) ya da **gizlenebilir**.
 
@@ -29,17 +29,25 @@ Kapasite, aynı gün teslim edilebilecek sipariş sayısıdır (varsayılan her 
 renklenir; kapasite dolu bir güne sipariş girerken form uyarır ve en yakın uygun günü önerir, ama kaydetmeye engel olmaz.
 Tatil / izin günleri Takvim’den ya da *Ayarlar → Kapalı günler* bölümünden kapatılır (0 = kapalı).
 
-## Verilerin saklanması (önemli)
+## Verilerin saklanması ve bulut eşitleme
 
-Bu ilk sürümde veriler **kullanılan cihazın tarayıcısında** (IndexedDB) saklanır:
+Kayıtlar önce **cihazdaki veritabanına** (IndexedDB) yazılır; uygulama internetsiz de çalışır.
+**Ayarlar → Bulut eşitleme**’den giriş yapınca (e-posta + şifre) her değişiklik birkaç saniye içinde
+**Supabase**’e gönderilir; telefon, tablet ve bilgisayarda aynı hesapla giriş yapınca aynı veriler görünür.
 
-- İnternetsiz çalışır, hızlıdır, hiçbir sunucuya veri gönderilmez.
-- Telefon ve tablet **şimdilik birbirini otomatik görmez.** Bir cihazdan diğerine geçmek için
-  *Ayarlar → Yedek al* ile alınan dosyayı diğer cihazda *Yedeği geri yükle* ile açın (fotoğraflar dahildir).
-- Düzenli yedek almanız önerilir.
+- Bir cihazda yapılan değişiklik açık olan diğer cihazlara birkaç saniye içinde gelir (Realtime Broadcast ile haber,
+  ayrıca dakikada bir ve uygulama öne gelince kontrol).
+- İnternet yokken değişiklikler kuyrukta bekler (menüde “Çevrimdışı · N bekliyor”), bağlantı gelince gönderilir.
+- Fotoğraflar Supabase Storage’daki `images` alanına, kullanıcının klasörüne yüklenir.
+- Aynı kayıt iki cihazda değişirse son gönderilen geçerli olur; gönderilmeyi bekleyen yerel değişiklik ezilmez.
+- Bir hesapla bir cihazda ilk girişte: bulut boşsa cihazdakiler gönderilir; cihazda kayıt yoksa buluttakiler gelir;
+  ikisinde de kayıt varsa “Birleştir / Buluttakileri kullan” diye sorulur.
+- Yedek alma / geri yükleme (JSON, fotoğraflar dahil) yine kullanılabilir; giriş yapılmışken geri yüklenen yedek
+  buluta da gönderilir.
 
-Bir sonraki aşamada bulut senkronizasyonu (ör. Supabase) eklenerek telefon ve tablet aynı verileri anlık
-görebilir. Veri modeli buna hazır kuruldu (tüm kayıtlarda benzersiz kimlik ve güncellenme zamanı var).
+Kurulum: Supabase projesinde `supabase/setup.sql` bir kez çalıştırılır (kayıtlar tablosu, satır düzeyi güvenlik,
+fotoğraf alanı). Kullanıcılar panelden (*Authentication → Users → Add user*) eklenir; yeni hesap açma kapalıdır.
+Proje adresi ve herkese açık (publishable) anahtar `src/lib/cloud.ts` içindedir.
 
 ## Geliştirme
 

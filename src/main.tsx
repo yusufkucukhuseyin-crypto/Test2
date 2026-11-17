@@ -4,6 +4,7 @@ import './index.css'
 import App from './App'
 import { ensureSettings } from './db/actions'
 import { initPwa } from './lib/pwa'
+import { initCloud } from './lib/cloud'
 
 function StorageError({ message }: { message: string }) {
   return (
@@ -37,6 +38,8 @@ async function start() {
   } catch {
     /* desteklenmiyor */
   }
+  // Bulut eşitleme (giriş yapılmışsa arka planda başlar)
+  initCloud()
   root.render(
     <StrictMode>
       <App />

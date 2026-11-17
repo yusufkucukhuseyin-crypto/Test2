@@ -10,6 +10,8 @@ import { countByDay, dayStatus } from '../lib/capacity'
 import { fmtDate, isoDate, money, shiftDay, today } from '../lib/format'
 import { OrderRow } from '../components/shared'
 import { InstallCard } from '../components/AppInstall'
+import { CloudPrompt } from '../components/Cloud'
+import { useSync } from '../lib/cloud'
 import { BackupReminder, RestoreButton } from '../components/Backup'
 import { Button, Card, CardHeader, EmptyState, LinkButton, PageHeader, Stat, useToast } from '../components/ui'
 
@@ -17,6 +19,7 @@ export default function Dashboard() {
   const settings = useSettings()
   const data = useCoreData()
   const toast = useToast()
+  const sync = useSync()
   const t = today()
 
   const view = useMemo(() => {
@@ -59,6 +62,7 @@ export default function Dashboard() {
       />
 
       <InstallCard dismissible className="mb-4" />
+      <CloudPrompt className="mb-4" />
 
       {empty && (
         <Card className="mb-4 p-5">
@@ -75,14 +79,16 @@ export default function Dashboard() {
             </div>
             <div className="flex flex-wrap gap-2">
               <RestoreButton label="Yedekten geri yükle" />
-              <Button
-                onClick={async () => {
-                  await loadDemoData()
-                  toast('Örnek veriler yüklendi')
-                }}
-              >
-                Örnek verilerle dene
-              </Button>
+              {sync.phase === 'off' && (
+                <Button
+                  onClick={async () => {
+                    await loadDemoData()
+                    toast('Örnek veriler yüklendi')
+                  }}
+                >
+                  Örnek verilerle dene
+                </Button>
+              )}
               <LinkButton to="/siparisler/yeni" variant="primary">
                 İlk siparişi ekle
               </LinkButton>

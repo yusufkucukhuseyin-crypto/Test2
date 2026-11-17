@@ -7,6 +7,8 @@ import { setDayCapacity, updateSettings } from '../db/actions'
 import { wipeAll } from '../db/backup'
 import { BackupButton, RestoreButton } from '../components/Backup'
 import { InstallCard } from '../components/AppInstall'
+import { CloudCard } from '../components/Cloud'
+import { useSync } from '../lib/cloud'
 import { loadDemoData } from '../db/seed'
 import type { OptionLists, Settings } from '../db/types'
 import { useSettings } from '../lib/hooks'
@@ -69,6 +71,7 @@ export default function SettingsPage() {
         }
       />
 
+      <CloudCard className="mb-4" />
       <InstallCard className="mb-4" />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -380,6 +383,7 @@ function ClosuresCard({ settings }: { settings: Settings }) {
 
 function DataCard() {
   const toast = useToast()
+  const sync = useSync()
   const settings = useSettings()
   const [busy, setBusy] = useState(false)
   const [storage, setStorage] = useState<{ persisted?: boolean; usage?: number; quota?: number }>({})
@@ -434,27 +438,36 @@ function DataCard() {
       <div className="mt-6 border-t border-line pt-4">
         <div className="mb-2 text-sm font-medium">Deneme</div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true)
-              try {
-                await loadDemoData()
-                toast('Örnek veriler eklendi')
-              } finally {
-                setBusy(false)
-              }
-            }}
-          >
-            Örnek veri ekle
-          </Button>
+          {sync.phase === 'off' && (
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true)
+                try {
+                  await loadDemoData()
+                  toast('Örnek veriler eklendi')
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              Örnek veri ekle
+            </Button>
+          )}
           <Button
             size="sm"
             variant="danger"
             disabled={busy}
             onClick={async () => {
-              if (!(await ask('Tüm müşteriler, siparişler, görseller ve stok kayıtları silinecek.', { confirmLabel: 'Devam' }))) return
+              if (
+                !(await ask(
+                  'Tüm müşteriler, siparişler, görseller ve stok kayıtları silinecek.' +
+                    (sync.phase !== 'off' ? '\n\nBulut eşitleme açık: kayıtlar buluttan ve tüm cihazlardan da silinir.' : ''),
+                  { confirmLabel: 'Devam' },
+                ))
+              )
+                return
               if (!(await ask('Bu işlem geri alınamaz. Önce yedek aldınız mı?', { confirmLabel: 'Tüm verileri sil' }))) return
               await wipeAll()
               toast('Tüm veriler silindi')

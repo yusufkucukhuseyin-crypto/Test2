@@ -8,6 +8,7 @@ import { Button, Modal } from './ui'
 interface Request {
   message: string
   confirmLabel: string
+  cancelLabel: string
   danger: boolean
   alertOnly: boolean
   resolve: (v: boolean) => void
@@ -15,10 +16,17 @@ interface Request {
 
 let push: ((r: Request) => void) | null = null
 
-export function ask(message: string, opts: { confirmLabel?: string; danger?: boolean } = {}): Promise<boolean> {
+export function ask(message: string, opts: { confirmLabel?: string; cancelLabel?: string; danger?: boolean } = {}): Promise<boolean> {
   return new Promise((resolve) => {
     if (!push) return resolve(window.confirm(message))
-    push({ message, confirmLabel: opts.confirmLabel ?? 'Evet', danger: opts.danger ?? true, alertOnly: false, resolve })
+    push({
+      message,
+      confirmLabel: opts.confirmLabel ?? 'Evet',
+      cancelLabel: opts.cancelLabel ?? 'Vazgeç',
+      danger: opts.danger ?? true,
+      alertOnly: false,
+      resolve,
+    })
   })
 }
 
@@ -28,7 +36,7 @@ export function tell(message: string): Promise<void> {
       window.alert(message)
       return resolve()
     }
-    push({ message, confirmLabel: 'Tamam', danger: false, alertOnly: true, resolve: () => resolve() })
+    push({ message, confirmLabel: 'Tamam', cancelLabel: '', danger: false, alertOnly: true, resolve: () => resolve() })
   })
 }
 
@@ -52,7 +60,7 @@ export function ConfirmHost() {
       title={req.alertOnly ? 'Bilgi' : 'Emin misiniz?'}
       footer={
         <>
-          {!req.alertOnly && <Button onClick={() => done(false)}>Vazgeç</Button>}
+          {!req.alertOnly && <Button onClick={() => done(false)}>{req.cancelLabel}</Button>}
           <Button variant={req.danger ? 'danger' : 'primary'} onClick={() => done(true)} autoFocus>
             {req.confirmLabel}
           </Button>

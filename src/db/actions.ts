@@ -156,9 +156,12 @@ export async function createOrder(input: OrderInput, extras: NewOrderExtras = {}
     const settings = (await db.settings.get('main'))!
     const id = uid()
     const now = Date.now()
-    const order: Order = { ...input, id, no: settings.nextOrderNo, createdAt: now, updatedAt: now }
+    // Başka cihazlardan gelen siparişlerle numara çakışmasın
+    const maxNo = (await db.orders.orderBy('no').last())?.no ?? 0
+    const no = Math.max(settings.nextOrderNo, maxNo + 1)
+    const order: Order = { ...input, id, no, createdAt: now, updatedAt: now }
     await db.orders.add(order)
-    await db.settings.update('main', { nextOrderNo: settings.nextOrderNo + 1 })
+    await db.settings.update('main', { nextOrderNo: no + 1 })
 
     if (extras.deposit && extras.deposit.amount > 0) {
       await db.payments.add({

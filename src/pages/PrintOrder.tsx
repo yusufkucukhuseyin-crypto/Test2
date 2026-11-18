@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { ArrowLeft, FileDown, Printer } from 'lucide-react'
 import { db } from '../db/db'
-import { saveFile } from '../db/backup'
+import { saveNodeAsHtml } from '../lib/printfile'
 import type { OrderImage } from '../db/types'
 import { STATUS, depositTotal, orderBase, paidTotal, productTypeOf } from '../lib/domain'
 import { fmtDate, money } from '../lib/format'
@@ -18,19 +18,6 @@ const IMG_LABEL: Record<OrderImage['kind'], string> = {
   taslak: 'Taslak',
   referans: 'Müşteri referansı',
   final: 'Bitmiş ürün',
-}
-
-/** Uygulamanın stil kurallarını (Tailwind) metin olarak toplar: kaydedilen dosya da aynı görünsün */
-function collectCss(): string {
-  const out: string[] = []
-  for (const sheet of Array.from(document.styleSheets)) {
-    try {
-      out.push(Array.from(sheet.cssRules).map((r) => r.cssText).join('\n'))
-    } catch {
-      /* başka kaynaktan gelen stil okunamaz */
-    }
-  }
-  return out.join('\n')
 }
 
 export default function PrintOrder() {
@@ -85,31 +72,7 @@ export default function PrintOrder() {
   const embedded = Boolean(import.meta.env.VITE_EMBED)
 
   const saveAsFile = async () => {
-    if (!sheetRef.current) return
-    // Fişi bağımsız bir HTML dosyası olarak oluştur (DOM ile; kodda sayfa etiketi metni tutulmaz)
-    const doc = document.implementation.createHTMLDocument(`Sipariş #${order.no}`)
-    doc.documentElement.lang = 'tr'
-    const charset = doc.createElement('meta')
-    charset.setAttribute('charset', 'utf-8')
-    doc.head.prepend(charset)
-    const vp = doc.createElement('meta')
-    vp.name = 'viewport'
-    vp.content = 'width=device-width,initial-scale=1'
-    doc.head.append(vp)
-    const style = doc.createElement('style')
-    style.textContent = collectCss() + '\nbody{background:#fff;margin:0;padding:16px}@media print{body{padding:0}.no-print{display:none}}'
-    doc.head.append(style)
-    const bar = doc.createElement('div')
-    bar.className = 'no-print'
-    bar.style.cssText = 'text-align:center;margin-bottom:12px'
-    const btn = doc.createElement('button')
-    btn.textContent = 'Yazdır'
-    btn.setAttribute('onclick', 'window.print()')
-    btn.style.cssText = 'padding:10px 18px;border-radius:12px;border:1px solid #ccc;background:#fff;font-size:15px'
-    bar.append(btn)
-    doc.body.append(bar, doc.importNode(sheetRef.current, true))
-    const html = new XMLSerializer().serializeToString(doc.doctype!) + '\n' + doc.documentElement.outerHTML
-    await saveFile(new Blob([html], { type: 'text/html' }), `siparis-${order.no}.html`)
+    if (sheetRef.current) await saveNodeAsHtml(sheetRef.current, `Sipariş #${order.no}`, `siparis-${order.no}.html`)
   }
 
   return (

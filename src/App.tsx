@@ -13,6 +13,7 @@ import CalendarPage from './pages/Calendar'
 import PriceList from './pages/PriceList'
 import SpecialDays from './pages/SpecialDays'
 import PrintOrder from './pages/PrintOrder'
+import PrintOrders from './pages/PrintOrders'
 import Catalog from './pages/Catalog'
 import Stock from './pages/Stock'
 import Reports from './pages/Reports'
@@ -34,6 +35,7 @@ export default function App() {
       <UpdateBanner />
       <Router>
         <Routes>
+          <Route path="siparisler/yazdir" element={<PrintOrders />} />
           <Route path="siparisler/:id/yazdir" element={<PrintOrder />} />
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />

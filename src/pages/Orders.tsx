@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { ClipboardList, Plus, Search } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { CheckSquare, ClipboardList, Plus, Printer, Search, X } from 'lucide-react'
 import { endOfWeek, startOfWeek } from 'date-fns'
 import { STATUS, STATUS_ORDER, isOpen } from '../lib/domain'
 import { TONE, countByDay, dayStatus, fmtCount } from '../lib/capacity'
@@ -8,7 +8,7 @@ import { fmtDate, isoDate, matches, relDay, today, money } from '../lib/format'
 import { useCoreData, sortByDelivery } from '../lib/data'
 import { useSettings } from '../lib/hooks'
 import { OrderRow } from '../components/shared'
-import { Card, EmptyState, LinkButton, PageHeader, Segmented, Select, cx } from '../components/ui'
+import { Button, Card, EmptyState, LinkButton, PageHeader, Segmented, Select, cx } from '../components/ui'
 import type { OrderStatus } from '../db/types'
 
 type Range = 'acik' | 'bugun' | 'hafta' | 'tum' | 'gecmis'
@@ -22,6 +22,11 @@ export default function Orders() {
   const [status, setStatus] = useState<OrderStatus | ''>('')
   const [type, setType] = useState('')
   const [unpaid, setUnpaid] = useState(params.get('kalan') === '1')
+  const nav = useNavigate()
+  // Yazdırmak için seçim modu
+  const [selecting, setSelecting] = useState(false)
+  const [picked, setPicked] = useState<string[]>([])
+  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
   const [freeOnly, setFreeOnly] = useState(false)
 
   const filtered = useMemo(() => {
@@ -74,9 +79,20 @@ export default function Orders() {
         title="Siparişler"
         subtitle={`${filtered.length} sipariş`}
         actions={
-          <LinkButton to="/siparisler/yeni" variant="primary" icon={<Plus size={18} />}>
-            Yeni sipariş
-          </LinkButton>
+          <>
+            <Button
+              icon={selecting ? <X size={18} /> : <CheckSquare size={18} />}
+              onClick={() => {
+                setSelecting(!selecting)
+                setPicked([])
+              }}
+            >
+              {selecting ? 'Seçimi kapat' : 'Seç ve yazdır'}
+            </Button>
+            <LinkButton to="/siparisler/yeni" variant="primary" icon={<Plus size={18} />}>
+              Yeni sipariş
+            </LinkButton>
+          </>
         }
       />
 
@@ -191,12 +207,41 @@ export default function Orders() {
                       settings={settings}
                       paid={data.paidByOrder.get(o.id) ?? 0}
                       showDate={false}
+                      selected={picked.includes(o.id)}
+                      onToggle={selecting ? () => toggle(o.id) : undefined}
                     />
                   ))}
                 </Card>
               </div>
             )
           })}
+        </div>
+      )}
+      {selecting && (
+        <div className="pb-safe fixed inset-x-0 bottom-16 z-40 flex justify-center px-4 md:bottom-6" data-testid="print-bar">
+          <div className="flex w-full max-w-xl flex-wrap items-center gap-2 rounded-2xl bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
+            <span className="mr-auto">{picked.length ? `${picked.length} sipariş seçildi` : 'Yazdırılacak siparişlere dokunun'}</span>
+            <button
+              type="button"
+              className="rounded-lg px-2 py-1.5 font-medium text-white/80 hover:bg-white/10"
+              onClick={() => setPicked(picked.length === filtered.length ? [] : filtered.map((o) => o.id))}
+            >
+              {picked.length === filtered.length && filtered.length > 0 ? 'Seçimi temizle' : `Tümünü seç (${filtered.length})`}
+            </button>
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<Printer size={16} />}
+              disabled={!picked.length}
+              onClick={() => {
+                // Teslim sırasına göre
+                const ids = filtered.filter((o) => picked.includes(o.id)).map((o) => o.id)
+                nav(`/siparisler/yazdir?ids=${ids.join(',')}`)
+              }}
+            >
+              Yazdır
+            </Button>
+          </div>
         </div>
       )}
     </div>

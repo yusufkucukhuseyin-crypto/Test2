@@ -27,20 +27,32 @@ export function OrderRow({
   settings,
   paid,
   showDate = true,
+  selected,
+  onToggle,
 }: {
   order: Order
   customer?: Customer
   settings: Settings
   paid: number
   showDate?: boolean
+  /** Seçim modunda: satıra dokununca seçilir (sipariş açılmaz) */
+  selected?: boolean
+  onToggle?: () => void
 }) {
   const pt = productTypeOf(settings, order.productType)
   const balance = order.agreedPrice - paid
-  return (
-    <Link
-      to={`/siparisler/${order.id}`}
-      className="flex items-center gap-3 px-4 py-3 transition hover:bg-stone-50 active:bg-stone-100"
-    >
+  const body = (
+    <>
+      {onToggle && (
+        <span
+          className={cx(
+            'flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2',
+            selected ? 'border-accent bg-accent text-white' : 'border-stone-300 bg-white',
+          )}
+        >
+          {selected && <Check size={15} strokeWidth={3} />}
+        </span>
+      )}
       <div className="w-1 self-stretch rounded-full" style={{ background: pt.color }} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -82,6 +94,24 @@ export function OrderRow({
           <span className="text-xs tabular-nums text-red-600">Kalan {money(balance)}</span>
         )}
       </div>
+    </>
+  )
+  if (onToggle) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={Boolean(selected)}
+        data-order={order.no}
+        className={cx('flex w-full items-center gap-3 px-4 py-3 text-left transition', selected ? 'bg-accent-soft/50' : 'hover:bg-stone-50')}
+      >
+        {body}
+      </button>
+    )
+  }
+  return (
+    <Link to={`/siparisler/${order.id}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-stone-50 active:bg-stone-100">
+      {body}
     </Link>
   )
 }

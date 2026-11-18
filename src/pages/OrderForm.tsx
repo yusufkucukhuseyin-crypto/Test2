@@ -3,12 +3,12 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Check, ImagePlus, Plus, Trash2, X } from 'lucide-react'
 import { db } from '../db/db'
-import { createOrder, updateOrder, type OrderInput } from '../db/actions'
-import type { ImageKind, OrderBox, OrderStatus, PriceExtra } from '../db/types'
+import { addImages, createOrder, updateOrder, type OrderInput } from '../db/actions'
+import type { ImageKind, OrderBox, OrderImage, OrderStatus, PriceExtra } from '../db/types'
 import { BOX_CATEGORY } from '../db/defaults'
 import { STATUS, calcTotal, extrasSum, orderBase, orderTotal, productTypeOf } from '../lib/domain'
 import { money, num, parseDay, today, uid } from '../lib/format'
-import { useSettings } from '../lib/hooks'
+import { useBlobUrl, useSettings } from '../lib/hooks'
 import { CustomerPicker, IMAGE_KINDS } from '../components/shared'
 import { DayHint } from '../components/DayHint'
 import {
@@ -96,6 +96,13 @@ export default function OrderForm() {
     date: today(),
   })
   const [pending, setPending] = useState<PendingImage[]>([])
+  // Düzenlemede siparişin mevcut görselleri: kaldırılanlar ve türü değişenler kayıtta uygulanır
+  const existingImages = useLiveQuery(
+    () => (isEdit && id ? db.images.where('orderId').equals(id).sortBy('createdAt') : Promise.resolve([] as OrderImage[])),
+    [id, isEdit],
+  )
+  const [removedImages, setRemovedImages] = useState<string[]>([])
+  const [kindChanges, setKindChanges] = useState<Record<string, ImageKind>>({})
   const [copyImageId] = useState(params.get('gorsel') ?? undefined)
   const [addSpecial, setAddSpecial] = useState(false)
   const [specialPerson, setSpecialPerson] = useState('')
@@ -217,6 +224,15 @@ export default function OrderForm() {
       }
       if (isEdit && id) {
         await updateOrder(id, input)
+        // Görseller: kaldırılanlar, türü değişenler, yeni eklenenler
+        if (removedImages.length) await db.images.bulkDelete(removedImages)
+        for (const [imgId, kind] of Object.entries(kindChanges)) {
+          if (removedImages.includes(imgId)) continue
+          await db.images.update(imgId, { kind, ...(kind === 'final' ? { inCatalog: 1 as const } : {}) })
+        }
+        for (const kind of new Set(pending.map((p) => p.kind))) {
+          await addImages(id, pending.filter((p) => p.kind === kind).map((p) => p.file), kind, input.productType)
+        }
         toast('Sipariş güncellendi')
         nav(`/siparisler/${id}`, { replace: true })
       } else {
@@ -398,10 +414,21 @@ export default function OrderForm() {
                 placeholder="Renkler, figürler, referans açıklaması…"
               />
             </Field>
-            {!isEdit && (
+            {(
               <div className="mt-4">
                 <div className="mb-2 text-[13px] font-medium text-muted">Görseller</div>
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {(existingImages ?? [])
+                    .filter((img) => !removedImages.includes(img.id))
+                    .map((img) => (
+                      <ExistingImage
+                        key={img.id}
+                        image={img}
+                        kind={kindChanges[img.id] ?? img.kind}
+                        onKind={(k) => setKindChanges((x) => ({ ...x, [img.id]: k }))}
+                        onRemove={() => setRemovedImages((x) => [...x, img.id])}
+                      />
+                    ))}
                   {pending.map((p) => (
                     <div key={p.id} className="relative">
                       <img src={p.url} alt="" className="aspect-square w-full rounded-xl border border-line object-cover" />
@@ -437,7 +464,10 @@ export default function OrderForm() {
                     Görsel ekle
                   </button>
                 </div>
-                {copyImageId && <div className="mt-2 text-xs text-muted">Katalogdan seçilen model referans olarak eklenecek.</div>}
+                {copyImageId && !isEdit && <div className="mt-2 text-xs text-muted">Katalogdan seçilen model referans olarak eklenecek.</div>}
+                {isEdit && (removedImages.length > 0 || pending.length > 0) && (
+                  <div className="mt-2 text-xs text-muted">Görsel değişiklikleri “Kaydet”e basınca uygulanır.</div>
+                )}
                 <input
                   ref={fileRef}
                   type="file"
@@ -666,6 +696,50 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="mb-3 font-display text-lg text-ink">{title}</h2>
       {children}
     </Card>
+  )
+}
+
+/** Düzenlemede siparişin kayıtlı görseli: türü değiştirilebilir ya da kaldırılabilir */
+function ExistingImage({
+  image,
+  kind,
+  onKind,
+  onRemove,
+}: {
+  image: OrderImage
+  kind: ImageKind
+  onKind: (k: ImageKind) => void
+  onRemove: () => void
+}) {
+  const url = useBlobUrl(image.thumb)
+  return (
+    <div className="relative" data-testid="existing-image">
+      {url ? (
+        <img src={url} alt={image.caption ?? ''} className="aspect-square w-full rounded-xl border border-line object-cover" />
+      ) : (
+        <div className="aspect-square w-full rounded-xl border border-line bg-stone-100" />
+      )}
+      <button
+        type="button"
+        aria-label="Görseli kaldır"
+        onClick={onRemove}
+        className="absolute top-1 right-1 flex h-7 w-7 items-center justify-center rounded-full bg-white/90 shadow"
+      >
+        <X size={14} />
+      </button>
+      <select
+        value={kind}
+        onChange={(e) => onKind(e.target.value as ImageKind)}
+        aria-label="Görsel türü"
+        className="mt-1 w-full rounded-lg border border-line bg-white px-1 py-1 text-xs"
+      >
+        {IMAGE_KINDS.map((k) => (
+          <option key={k.value} value={k.value}>
+            {k.label}
+          </option>
+        ))}
+      </select>
+    </div>
   )
 }
 
